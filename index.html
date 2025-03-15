@@ -1,0 +1,2762 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpaceAce | Retro Cyberpunk Navigator</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=VT323&display=swap');
+    
+    :root {
+      --primary: #00FF41;
+      --primary-dark: #00CC33;
+      --primary-light: #65FF7A;
+      --accent: #FF00FF;
+      --accent-dark: #CC00CC;
+      --success: #00FFFF;
+      --warning: #FFFF00;
+      --danger: #FF0000;
+      --background: #000000;
+      --background-light: #121212;
+      --background-lighter: #1a1a1a;
+      --text: #00FF41;
+      --text-muted: #00CC33;
+      --panel-bg: rgba(0, 0, 0, 0.75);
+      --border-radius: 0px;
+      --shadow: 0 0 10px rgba(0, 255, 65, 0.5), 0 0 20px rgba(0, 255, 65, 0.3);
+      --glow: 0 0 15px rgba(0, 255, 65, 0.7), 0 0 30px rgba(0, 255, 65, 0.4);
+    }
+    
+    
+    body {
+      margin: 0; padding: 0; 
+      background-color: var(--background);
+      background-image: 
+        linear-gradient(0deg, rgba(0, 255, 65, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 65, 0.1) 1px, transparent 1px);
+      background-size: 20px 20px;
+      display: flex; flex-direction: column; align-items: center;
+      min-height: 100vh;
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--text);
+      position: relative;
+      transition: background-color 0.3s ease;
+      text-shadow: 0 0 5px rgba(0, 255, 65, 0.7);
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+    #gameScreen, #levelSelectScreen, #leaderboardScreen {
+      display: none;
+      width: 100%;
+      text-align: center;
+    }
+    #levelSelectScreen {
+      display: block;
+      color: var(--text);
+      animation: glitchIn 0.7s ease-out;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding-bottom: 50px;
+    }
+    #levelSelectScreen h1 {
+      color: var(--text);
+      font-size: 60px;
+      margin: 30px 0;
+      font-weight: 700;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 2px;
+      position: relative;
+      display: inline-block;
+      padding-bottom: 10px;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px var(--primary), 0 0 20px var(--primary);
+    }
+    #levelSelectScreen h1::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary), 0 0 20px var(--primary);
+      animation: scanline 2s linear infinite;
+    }
+    #levelSelectScreen h1 span {
+      color: var(--accent);
+      text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent);
+      position: relative;
+    }
+    .level-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .level-button {
+      background-color: var(--background-light);
+      color: var(--text);
+      border: 1px solid var(--primary);
+      border-radius: var(--border-radius);
+      padding: 15px;
+      font-size: 20px;
+      font-weight: normal;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 220px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+      font-family: 'VT323', monospace;
+      text-transform: uppercase;
+    }
+    .level-button::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 5px var(--primary);
+      z-index: 0;
+    }
+    .level-button::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 5px var(--primary);
+      z-index: 0;
+    }
+    .level-button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+      border-color: var(--primary-light);
+    }
+    .level-button:hover::before, .level-button:hover::after {
+      box-shadow: 0 0 10px var(--primary);
+    }
+    .level-button > * {
+      position: relative;
+      z-index: 1;
+    }
+    .level-button.locked {
+      opacity: 0.5;
+      cursor: not-allowed;
+      filter: grayscale(0.9);
+      border-color: rgba(0, 255, 65, 0.3);
+    }
+    .level-button.locked:hover {
+      transform: none;
+      box-shadow: 0 0 5px rgba(0, 255, 65, 0.2);
+    }
+    .level-title {
+      font-size: 22px;
+      margin-bottom: 10px;
+      color: var(--primary);
+      transition: all 0.2s ease;
+      font-weight: bold;
+    }
+    .level-button:hover .level-title {
+      color: var(--accent);
+    }
+    .level-minimap {
+      width: 150px;
+      height: 120px;
+      margin: 0 auto;
+      border: 1px solid var(--primary);
+      box-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+      transition: all 0.2s ease;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+    .level-button:hover .level-minimap {
+      border-color: var(--accent);
+      box-shadow: 0 0 8px rgba(255, 0, 255, 0.5);
+    }
+    .level-time {
+      font-size: 16px;
+      margin-top: 15px;
+      color: var(--success);
+      font-family: 'Share Tech Mono', monospace;
+      padding: 3px 8px;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: 1px solid var(--success);
+      display: inline-block;
+      height: 24px;
+      min-width: 80px;
+    }
+    .level-time.no-record {
+      color: var(--text-muted);
+      border-color: var(--text-muted);
+      opacity: 0.7;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes glitchIn {
+      0% { 
+        opacity: 0; 
+        transform: translateY(-15px); 
+        clip-path: inset(0 0 0 0);
+      }
+      20% { 
+        opacity: 0.3; 
+        transform: translateY(-10px);
+        clip-path: inset(20% 0 0 0);
+      }
+      25% { 
+        opacity: 0.5; 
+        transform: translateY(-8px);
+        clip-path: inset(0 0 20% 0);
+      }
+      35% { 
+        opacity: 0.7; 
+        transform: translateY(-5px);
+        clip-path: inset(0 20% 0 0);
+      }
+      49% { 
+        opacity: 0.8; 
+        transform: translateY(-3px);
+        clip-path: inset(0 0 0 20%);
+      }
+      50% { 
+        opacity: 0.9; 
+        transform: translateY(0);
+        clip-path: inset(0 0 0 0);
+      }
+      55% { 
+        opacity: 0.8; 
+        text-shadow: 0 0 15px var(--primary);
+      }
+      75% { 
+        opacity: 1; 
+        text-shadow: 0 0 5px var(--primary);
+      }
+      85% { 
+        text-shadow: 0 0 15px var(--primary);
+      }
+      100% { 
+        opacity: 1; 
+        transform: translateY(0);
+        text-shadow: 0 0 10px var(--primary);
+      }
+    }
+    
+    @keyframes slideIn {
+      0% { 
+        opacity: 0; 
+        transform: translateX(-20px); 
+      }
+      25% { 
+        opacity: 0.3; 
+        transform: translateX(-15px);
+        text-shadow: 2px 0 var(--accent); 
+      }
+      50% { 
+        opacity: 0.6; 
+        transform: translateX(-10px);
+        text-shadow: -2px 0 var(--accent);
+      }
+      75% { 
+        opacity: 0.9; 
+        transform: translateX(-5px);
+        text-shadow: 2px 0 var(--accent);
+      }
+      100% { 
+        opacity: 1; 
+        transform: translateX(0);
+        text-shadow: none;
+      }
+    }
+    
+    @keyframes slideInRight {
+      0% { 
+        opacity: 0; 
+        transform: translateX(20px); 
+      }
+      25% { 
+        opacity: 0.3; 
+        transform: translateX(15px);
+        text-shadow: -2px 0 var(--accent);
+      }
+      50% { 
+        opacity: 0.6; 
+        transform: translateX(10px);
+        text-shadow: 2px 0 var(--accent);
+      }
+      75% { 
+        opacity: 0.9; 
+        transform: translateX(5px);
+        text-shadow: -2px 0 var(--accent);
+      }
+      100% { 
+        opacity: 1; 
+        transform: translateX(0);
+        text-shadow: none;
+      }
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.8; transform: scale(1); }
+      25% { opacity: 1; transform: scale(1.05); box-shadow: 0 0 15px var(--primary); }
+      50% { opacity: 0.9; transform: scale(1); box-shadow: 0 0 5px var(--primary); }
+      75% { opacity: 1; transform: scale(1.02); box-shadow: 0 0 15px var(--primary); }
+      100% { opacity: 0.8; transform: scale(1); }
+    }
+    
+    @keyframes glow {
+      0% { box-shadow: 0 0 5px rgba(0, 255, 65, 0.5); }
+      25% { box-shadow: 0 0 15px rgba(0, 255, 65, 0.7), 0 0 30px rgba(0, 255, 65, 0.3); }
+      50% { box-shadow: 0 0 10px rgba(0, 255, 65, 0.5); }
+      75% { box-shadow: 0 0 20px rgba(0, 255, 65, 0.8), 0 0 40px rgba(0, 255, 65, 0.4); }
+      100% { box-shadow: 0 0 5px rgba(0, 255, 65, 0.5); }
+    }
+    
+    @keyframes scanline {
+      0% { transform: translateY(0); opacity: 0.5; }
+      50% { transform: translateY(0); opacity: 1; }
+      100% { transform: translateY(0); opacity: 0.5; }
+    }
+    
+    @keyframes flicker {
+      0% { opacity: 1; }
+      5% { opacity: 0.7; }
+      10% { opacity: 1; }
+      15% { opacity: 0.8; }
+      20% { opacity: 1; }
+      50% { opacity: 1; }
+      55% { opacity: 0.9; }
+      60% { opacity: 1; }
+      75% { opacity: 0.8; }
+      80% { opacity: 1; }
+      90% { opacity: 0.7; }
+      100% { opacity: 1; }
+    }
+    
+    #controls {
+      margin: 12px 0;
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+    }
+    
+    .button-primary, #leaderboardBtn, #startBtn, #backToLevels, #gameControlsBtn, #backToLevelsFromLeaderboard, #resetBtn, #ghostToggle {
+      background-color: var(--background);
+      color: var(--text);
+      border: 1px solid var(--primary);
+      padding: 12px 25px;
+      margin: 15px;
+      font-size: 18px;
+      font-weight: normal;
+      cursor: pointer;
+      border-radius: 0;
+      transition: all 0.2s ease;
+      position: relative;
+      overflow: hidden;
+      letter-spacing: 1px;
+      font-family: 'Share Tech Mono', monospace;
+      text-transform: uppercase;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.4), inset 0 0 5px rgba(0, 255, 65, 0.1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      text-shadow: 0 0 5px var(--primary);
+      animation: flicker 5s infinite;
+    }
+    
+    .button-primary::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 5px var(--primary);
+      z-index: 1;
+    }
+    
+    .button-primary::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 5px var(--primary);
+      z-index: 1;
+    }
+    
+    .button-primary:hover {
+      background-color: rgba(0, 255, 65, 0.1);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.6), inset 0 0 10px rgba(0, 255, 65, 0.2);
+      text-shadow: 0 0 8px var(--primary);
+    }
+    
+    .button-primary:active {
+      background-color: rgba(0, 255, 65, 0.2);
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.5), inset 0 0 10px rgba(0, 255, 65, 0.2);
+    }
+    
+    .button-icon {
+      font-size: 18px;
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    #gameControls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      animation: slideInRight 0.7s ease;
+      width: auto;
+    }
+    
+    #gameControls button {
+      background-color: black;
+      color: var(--text);
+      border: 1px solid var(--primary);
+      padding: 8px 15px;
+      cursor: pointer;
+      border-radius: 0;
+      transition: all 0.2s ease;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 14px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    #gameControls button:hover {
+      background-color: rgba(0, 255, 65, 0.1);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5), 0 0 30px rgba(0, 255, 65, 0.2);
+      transform: translateX(-2px);
+    }
+    
+    #gameControls button i {
+      font-size: 14px;
+      text-shadow: 0 0 5px var(--primary);
+    }
+    canvas {
+      background-color: var(--background);
+      display: block;
+      border-radius: 0;
+      border: 1px solid var(--primary);
+      box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.9), 0 0 15px rgba(0, 255, 65, 0.5);
+    }
+    
+    #gameCanvas {
+      width: 100vw;
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      image-rendering: pixelated;
+    }
+    
+    /* This ensures the game screen takes up the full viewport and prevents scrolling during gameplay */
+    #gameScreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    #ui {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+      background-color: rgba(0, 0, 0, 0.7);
+      padding: 15px;
+      border-radius: 0;
+      border: 1px solid var(--primary);
+      animation: slideIn 0.7s ease;
+      z-index: 10;
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+      font-family: 'Share Tech Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    #ui div {
+      font-size: 16px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-shadow: 0 0 5px var(--primary);
+      letter-spacing: 1px;
+    }
+    
+    #ui div::before {
+      content: '>';
+      display: inline-block;
+      color: var(--primary);
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    #timer {
+      position: absolute;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 48px;
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      text-shadow: 0 0 10px var(--primary);
+      z-index: 10;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      opacity: 0.95;
+      background: black;
+      padding: 10px 30px;
+      border-radius: 0;
+      border: 1px solid var(--primary);
+      letter-spacing: 2px;
+      animation: flicker 4s infinite;
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+    }
+    #timer.fadeOut {
+      opacity: 0.3;
+      transform: translateX(-50%) scale(0.9);
+    }
+    #miniMap {
+      position: absolute; 
+      bottom: 20px; 
+      right: 20px;
+      width: 220px; 
+      height: 165px;
+      background: black;
+      border: 1px solid var(--primary);
+      border-radius: 0;
+      overflow: hidden;
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+      animation: slideInRight 0.7s ease;
+      z-index: 10;
+    }
+    
+    #leaderboardScreen {
+      color: var(--text);
+      max-width: 1000px;
+      margin: 30px auto;
+      animation: glitchIn 0.7s ease;
+      padding: 25px;
+      padding-bottom: 50px;
+      background-color: black;
+      border-radius: 0;
+      border: 1px solid var(--primary);
+      box-shadow: 0 0 20px rgba(0, 255, 65, 0.4);
+      position: relative;
+      min-height: 80vh;
+    }
+    
+    #leaderboardScreen h1 {
+      color: var(--text);
+      font-size: 42px;
+      font-weight: 700;
+      font-family: 'Orbitron', sans-serif;
+      letter-spacing: 2px;
+      text-align: center;
+      margin-bottom: 30px;
+      position: relative;
+      display: inline-block;
+      padding-bottom: 10px;
+      text-transform: uppercase;
+      text-shadow: 0 0 10px var(--primary), 0 0 20px var(--primary);
+    }
+    
+    #leaderboardScreen h1::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary), 0 0 20px var(--primary);
+      animation: scanline 2s linear infinite;
+    }
+    
+    #leaderboardScreen h1 span {
+      color: var(--accent);
+      text-shadow: 0 0 10px var(--accent), 0 0 20px var(--accent);
+      position: relative;
+    }
+    
+    .leaderboard-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      margin-top: 30px;
+      border: 1px solid var(--primary);
+      overflow: hidden;
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
+    }
+    
+    .leaderboard-table th, .leaderboard-table td {
+      padding: 15px;
+      text-align: center;
+      border-bottom: 1px solid var(--primary);
+      font-family: 'Share Tech Mono', monospace;
+      letter-spacing: 1px;
+    }
+    
+    .leaderboard-table th {
+      background-color: black;
+      color: var(--text);
+      font-weight: normal;
+      text-transform: uppercase;
+      font-size: 15px;
+      border-bottom: 2px solid var(--primary);
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    .leaderboard-table tr:last-child td {
+      border-bottom: none;
+    }
+    
+    .leaderboard-table tr:nth-child(even) {
+      background-color: rgba(0, 255, 65, 0.05);
+    }
+    
+    .leaderboard-table tr:hover {
+      background-color: rgba(0, 255, 65, 0.1);
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    .leaderboard-table td {
+      transition: all 0.2s;
+    }
+    
+    .leaderboard-table td:nth-child(3) {
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--success);
+      text-shadow: 0 0 5px var(--success);
+    }
+    
+    .your-score {
+      background-color: rgba(0, 255, 65, 0.15) !important;
+    }
+    
+    #leaderboardControls {
+      margin: 25px 0;
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      align-items: center;
+    }
+    
+    #leaderboardLevelSelect {
+      background-color: black;
+      color: var(--text);
+      padding: 10px 15px;
+      border: 1px solid var(--primary);
+      border-radius: 0;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 15px;
+      outline: none;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.4);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-shadow: 0 0 5px var(--primary);
+    }
+    
+    #leaderboardLevelSelect:hover, #leaderboardLevelSelect:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.6);
+    }
+    #ghostToggle {
+      background-color: black;
+      color: var(--text);
+      border: 1px solid var(--primary);
+      padding: 8px 15px;
+      cursor: pointer;
+      border-radius: 0;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 14px;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      text-shadow: 0 0 5px var(--primary);
+    }
+    #ghostToggle i {
+      font-size: 15px;
+      text-shadow: 0 0 5px var(--primary);
+    }
+    #ghostToggle:hover {
+      background-color: rgba(0, 255, 65, 0.1);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+    }
+    #ghostToggle.active {
+      background-color: rgba(0, 255, 65, 0.2);
+      color: var(--text);
+      border-color: var(--primary);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.6), inset 0 0 10px rgba(0, 255, 65, 0.2);
+    }
+    .help-text {
+      color: var(--text);
+      font-size: 15px;
+      margin-top: 30px;
+      margin-bottom: 30px;
+      line-height: 1.6;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      font-family: 'Share Tech Mono', monospace;
+      text-shadow: 0 0 5px var(--primary);
+      animation: flicker 5s infinite;
+      padding: 10px;
+    }
+    #levelDescription {
+      margin-top: 20px;
+      color: var(--text);
+      max-width: 800px;
+      margin: 30px auto;
+      line-height: 1.8;
+      font-size: 16px;
+      padding: 20px 25px;
+      background-color: black;
+      border-radius: 0;
+      border: 1px solid var(--primary);
+      text-align: center;
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
+      position: relative;
+      overflow: hidden;
+      font-family: 'Share Tech Mono', monospace;
+      text-shadow: 0 0 5px var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    #levelDescription::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+    }
+    
+    #levelDescription::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 1px;
+      background: var(--primary);
+      box-shadow: 0 0 10px var(--primary);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Level Selection Screen -->
+<div id="levelSelectScreen">
+  <h1><span>Space</span>Ace</h1>
+  
+  <div id="levelDescription">
+    <i class="fas fa-rocket" style="font-size: 24px; margin-bottom: 15px; color: var(--primary); text-shadow: 0 0 10px var(--primary);"></i>
+    <p>[ SYSTEM INTERFACE v2.1 ]<br>
+    NAVIGATE THROUGH HOSTILE SECTORS, ACQUIRE DATA FRAGMENTS, EVADE DETECTION.<br>
+    MISSION: OPTIMAL TIME EFFICIENCY.</p>
+  </div>
+  
+  <div class="level-grid">
+    <!-- Levels will be generated via JS -->
+  </div>
+  
+  <div class="level-controls">
+    <button id="leaderboardBtn" class="button-primary">
+      <i class="fas fa-trophy button-icon"></i>
+      View Leaderboard
+    </button>
+  </div>
+  
+  <div class="help-text">
+    <p>
+      <i class="fas fa-arrow-left"></i> / <i class="fas fa-arrow-right"></i> to rotate &nbsp;|&nbsp; SPACE to thrust
+    </p>
+    <p>Complete all pickups to finish the level and race against time!</p>
+  </div>
+</div>
+
+<!-- Game Screen -->
+<div id="gameScreen">
+  <div id="gameControls">
+    <button id="backToLevels">
+      <i class="fas fa-arrow-left"></i>
+      Exit Level
+    </button>
+    <button id="ghostToggle">
+      <i class="fas fa-ghost"></i>
+      Ghost: Off
+    </button>
+    <button id="resetBtn">
+      <i class="fas fa-redo-alt"></i>
+      Reset
+    </button>
+  </div>
+  
+  <div id="ui">
+    <div id="pickups">Pickups Left: <span>--</span></div>
+    <div id="best">Best Time: <span>none</span></div>
+  </div>
+  
+  <div id="timer">0.00</div>
+  
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <canvas id="miniMap"></canvas>
+  
+</div>
+
+<!-- Leaderboard Screen -->
+<div id="leaderboardScreen">
+  <h1><span>Space</span>Ace Leaderboard</h1>
+  
+  <div id="leaderboardControls">
+    <select id="leaderboardLevelSelect">
+      <option value="all">All Levels</option>
+      <option value="1">Level 1</option>
+      <option value="2">Level 2</option>
+      <option value="3">Level 3</option>
+      <option value="4">Level 4</option>
+      <option value="5">Level 5</option>
+      <option value="6">Level 6</option>
+      <option value="7">Level 7</option>
+      <option value="8">Level 8</option>
+      <option value="9">Level 9</option>
+      <option value="10">Level 10</option>
+    </select>
+  </div>
+  
+  <table class="leaderboard-table">
+    <thead>
+      <tr>
+        <th><i class="fas fa-medal" style="margin-right: 5px;"></i> Rank</th>
+        <th><i class="fas fa-layer-group" style="margin-right: 5px;"></i> Level</th>
+        <th><i class="fas fa-stopwatch" style="margin-right: 5px;"></i> Time</th>
+        <th><i class="fas fa-calendar-alt" style="margin-right: 5px;"></i> Date</th>
+      </tr>
+    </thead>
+    <tbody id="leaderboardBody">
+      <!-- Leaderboard entries will be populated here -->
+    </tbody>
+  </table>
+  
+  <button id="backToLevelsFromLeaderboard" class="button-primary">
+    <i class="fas fa-chevron-left button-icon"></i>
+    Back to Levels
+  </button>
+</div>
+
+<script src="mapData.js"></script>
+<script>
+////////////////////////////////////////////////////////////////////////////////
+// 1) Insert Your Real Map Arrays
+////////////////////////////////////////////////////////////////////////////////
+
+////////////////////////////////////////////////////////////////////////////////
+// 2) getDLForLevel(levelNum) - merges arrays exactly like your Flash `_K()`
+////////////////////////////////////////////////////////////////////////////////
+function getDLForLevel(levelNum) {
+  let DL;
+  let EL, GL; // color constants from your code
+
+  switch (levelNum) {
+    case 1:
+      DL = AM;
+      EL = 12648256;
+      GL = 7657580;
+      break;
+    case 2:
+      DL = BM;
+      EL = 16740536;
+      GL = 16752800;
+      break;
+    case 3:
+      DL = CM.concat(DM, EM);
+      EL = 4259776;
+      GL = 13158528;
+      break;
+    case 4:
+      DL = FM;
+      EL = 8421631;
+      GL = 10526975;
+      break;
+    case 5:
+      DL = GM;
+      EL = 1097983;
+      GL = 10535104;
+      break;
+    case 6:
+      DL = HM;
+      EL = 16290436;
+      GL = 16036695;
+      break;
+    case 7:
+      DL = IM;
+      EL = 13684944;
+      GL = 16752800;
+      break;
+    case 8:
+      DL = JM;
+      EL = 11894775;
+      GL = 13082617;
+      break;
+    case 9:
+      DL = KM;
+      EL = 4259776;
+      GL = 13158528;
+      break;
+    case 10:
+      DL = _M.concat($M);
+      EL = 8421631;
+      GL = 10526975;
+      break;
+    default:
+      DL = [];
+      EL = 0xCCCCCC;
+      GL = 0x666666;
+      break;
+  }
+  return { DL, EL, GL };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 3) parseFlashMapData(levelNum) - replicate YJ._K() & T_() to read geometry
+//
+//    *** Important ***
+//    The Flash code in T_() uses a "start index" from the line data area:
+//       startIndex = DL[ OL + PL*2 ]
+//    which is the vertex for the ship's spawn. We'll store that in `.shipStart`
+////////////////////////////////////////////////////////////////////////////////
+function parseFlashMapData(levelNum) {
+  const { DL, EL, GL } = getDLForLevel(levelNum);
+
+  if (!DL || DL.length < 1) {
+    console.warn("No data for level", levelNum);
+    return {
+      vertices: [], lines: [], pickups: [], triangles: [],
+      startIndex: null,
+      CC: 0, DC: 0, EL, GL
+    };
+  }
+
+  const vertexCount = DL[0];
+  // OL = 1 + vertexCount*2 + 1
+  const OL = 1 + vertexCount*2 + 1;
+  const PL = DL[OL - 1]; // # lines
+
+  // read vertices
+  const vertices = [];
+  for(let i=0; i<vertexCount; i++){
+    const x=DL[1 + i*2];
+    const y=DL[1 + i*2 +1];
+    vertices.push({x,y});
+  }
+
+  // read lines
+  const lines=[];
+  for(let i=0; i<PL; i++){
+    const vA=DL[OL + i*2];
+    const vB=DL[OL + i*2 +1];
+    lines.push([vA,vB]);
+  }
+
+  // next offset
+  // The Flash code after lines: "startIndex = DL[ OL + PL*2 ]"
+  // then "QL = OL + PL*2 + 4"
+  const startIndex = DL[ OL + PL*2 ]; // The "ship spawn vertex" from the Flash code
+
+  const QL = OL + PL*2 + 4;
+  const RL = DL[QL - 1]; // # pickups
+  const CC = DL[QL - 3]; // bounding width
+  const DC = DL[QL - 2]; // bounding height
+
+  // read pickups
+  const pickups=[];
+  for(let i=0; i<RL; i++){
+    pickups.push( DL[QL + i] ); // each is a vertex index
+  }
+
+  // read triangles
+  const triOffset = QL + RL +1;
+  const triCount = DL[triOffset -1];
+  const triangles=[];
+  for(let i=0; i<triCount; i++){
+    const t1=DL[triOffset + i*3];
+    const t2=DL[triOffset + i*3 +1];
+    const t3=DL[triOffset + i*3 +2];
+    triangles.push([t1,t2,t3]);
+  }
+
+  return {
+    vertices, lines, pickups, triangles,
+    startIndex, CC, DC, EL, GL
+  };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 4) Canvas and main state
+////////////////////////////////////////////////////////////////////////////////
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+
+const miniMapCanvas = document.getElementById('miniMap');
+miniMapCanvas.width  = 200;
+miniMapCanvas.height = 150;
+const miniMapCtx     = miniMapCanvas.getContext('2d');
+
+const uiTimer   = document.getElementById('timer');
+const uiPickups = document.getElementById('pickups');
+const uiBest    = document.getElementById('best');
+
+const levelSelect = document.getElementById('levelSelect');
+const startBtn    = document.getElementById('startBtn');
+
+// We'll store bounding info for the map’s vertices
+let lastTime=0;
+let currentLevel=1;
+
+const GRAVITY=100, THRUST_POWER=400, ROTATION_SPEED=4.363323;
+const PICKUP_RADIUS=10;
+
+// Persistent storage for level progress and leaderboard
+let gameState = {
+  mapData: null,  
+  camera: { x:0, y:0, zoom:1.0, targetZoom:1.0 },
+  ship: {
+    x:0, y:0, vx:0, vy:0, rotation:0,
+    thrusting:false, rotatingLeft:false, rotatingRight:false,
+    exploded:false
+  },
+  ghost: {
+    enabled: false,
+    recording: [],
+    replayData: null,
+    replayIndex: 0,
+    prevIndex: 0,
+    nextIndex: 0,
+    interpolation: 0,
+    opacity: 1.0
+  },
+  gameTime:0,
+  bestTime:null,
+  pickups:[],         // array of {x,y,collected:false}
+  pickupsRemaining:0,
+  // we'll store bounding box for convenience
+  bounds: { minX:0, maxX:0, minY:0, maxY:0 },
+  particles:[],
+  gameActive: false,
+  currentRecording: [], // For ghost replay
+  levelCompleted: false // Flag to prevent multiple endRun calls
+};
+
+// Leaderboard and level progress system (inspired by the pygame implementation)
+// Store in localStorage just like the pygame version uses JSON files
+const STORAGE_KEY = 'spaceAceData';
+const GHOST_STORAGE_KEY = 'spaceAceGhosts';
+
+// Default leaderboard structure - matches the pygame format
+let leaderboards = {
+  "1": [], "2": [], "3": [], "4": [], "5": [], 
+  "6": [], "7": [], "8": [], "9": [], "10": []
+};
+
+// Store ghost recordings separately to match the pygame implementation
+let ghostData = {};
+
+// All levels are unlocked from the beginning
+let unlockedLevels = 10;
+
+// Load saved leaderboards from localStorage
+function loadLeaderboards() {
+  const savedData = localStorage.getItem(STORAGE_KEY);
+  if (savedData) {
+    try {
+      const parsed = JSON.parse(savedData);
+      // Merge with defaults to ensure all levels exist
+      leaderboards = {...leaderboards, ...parsed};
+    } catch (e) {
+      console.error('Error loading leaderboard data:', e);
+    }
+  }
+}
+
+// Save leaderboards to localStorage
+function saveLeaderboards() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(leaderboards));
+  } catch (e) {
+    console.error('Error saving leaderboard data:', e);
+  }
+}
+
+// Add a time to the leaderboard for specific level
+function addLeaderboardEntry(level, time) {
+  // Ensure level is a string key
+  const levelKey = level.toString();
+  
+  // Create array if it doesn't exist
+  if (!leaderboards[levelKey]) {
+    leaderboards[levelKey] = [];
+  }
+  
+  // Add the time and sort
+  leaderboards[levelKey].push({
+    time: time,
+    date: new Date().toISOString()
+  });
+  
+  // Sort by time (ascending)
+  leaderboards[levelKey].sort((a, b) => a.time - b.time);
+  
+  // Keep only top 10 scores for each level
+  if (leaderboards[levelKey].length > 10) {
+    leaderboards[levelKey] = leaderboards[levelKey].slice(0, 10);
+  }
+  
+  // Save to storage
+  saveLeaderboards();
+}
+
+// Get best time for a specific level
+function getBestTime(level) {
+  const levelKey = level.toString();
+  if (leaderboards[levelKey] && leaderboards[levelKey].length > 0) {
+    return leaderboards[levelKey][0].time;
+  }
+  return null;
+}
+
+// Update leaderboard display
+function updateLeaderboardDisplay(levelFilter = 'all') {
+  const leaderboardBody = document.getElementById('leaderboardBody');
+  leaderboardBody.innerHTML = '';
+  
+  // Get all entries or filtered by level
+  let allEntries = [];
+  
+  if (levelFilter === 'all') {
+    // Combine all levels
+    Object.keys(leaderboards).forEach(level => {
+      leaderboards[level].forEach(entry => {
+        allEntries.push({
+          level: parseInt(level, 10),
+          time: entry.time,
+          date: entry.date
+        });
+      });
+    });
+    
+    // Sort combined entries
+    allEntries.sort((a, b) => a.time - b.time);
+    
+  } else {
+    // Filter to specific level
+    const levelKey = levelFilter.toString();
+    if (leaderboards[levelKey]) {
+      allEntries = leaderboards[levelKey].map(entry => ({
+        level: parseInt(levelKey, 10),
+        time: entry.time,
+        date: entry.date
+      }));
+    }
+  }
+  
+  // Show message if no entries
+  if (allEntries.length === 0) {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td colspan="4">No records yet. Complete levels to add entries!</td>';
+    leaderboardBody.appendChild(row);
+    return;
+  }
+  
+  // Display entries
+  allEntries.forEach((entry, index) => {
+    const row = document.createElement('tr');
+    
+    // Format date
+    const date = new Date(entry.date);
+    const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+    
+    row.innerHTML = `
+      <td>${index + 1}</td>
+      <td>Level ${entry.level}</td>
+      <td>${entry.time.toFixed(2)}s</td>
+      <td>${formattedDate}</td>
+    `;
+    
+    leaderboardBody.appendChild(row);
+  });
+}
+
+// Load ghost data from storage
+function loadGhostData() {
+  const savedData = localStorage.getItem(GHOST_STORAGE_KEY);
+  if (savedData) {
+    try {
+      ghostData = JSON.parse(savedData);
+    } catch (e) {
+      console.error('Error loading ghost data:', e);
+      ghostData = {};
+    }
+  }
+}
+
+// Save ghost data to storage
+function saveGhostData() {
+  try {
+    localStorage.setItem(GHOST_STORAGE_KEY, JSON.stringify(ghostData));
+  } catch (e) {
+    console.error('Error saving ghost data:', e);
+  }
+}
+
+// Load ghost for specific level
+function loadGhost(level) {
+  const levelKey = level.toString();
+  if (ghostData[levelKey]) {
+    return ghostData[levelKey];
+  }
+  return null;
+}
+
+// Record position for ghost replay with optimized sampling frequency
+function recordGhostPosition() {
+  if (!gameState.gameActive) return;
+  
+  // Only record every 0.1 seconds or when thrusting changes
+  if (gameState.gameTime % 0.1 <= 0.01 || 
+      (gameState.currentRecording.length > 0 && 
+       gameState.currentRecording[gameState.currentRecording.length-1].thrusting !== gameState.ship.thrusting)) {
+    
+    gameState.currentRecording.push({
+      x: gameState.ship.x,
+      y: gameState.ship.y,
+      rotation: gameState.ship.rotation,
+      thrusting: gameState.ship.thrusting,
+      time: gameState.gameTime
+    });
+  }
+}
+
+// Save ghost replay for a level
+function saveGhostReplay(level, time) {
+  const levelKey = level.toString();
+  
+  // Save current recording with total time
+  ghostData[levelKey] = {
+    time: time,
+    positions: gameState.currentRecording.slice()
+  };
+  
+  // Save to storage
+  saveGhostData();
+}
+
+// A ship shape
+const shipVerts = [
+  {x: 0,     y:-36.5},
+  {x:-19,    y: 23.5},
+  {x:-24,    y: 23.5},
+  {x:-15.675,y: 13},
+  {x: 19,    y: 23.5},
+  {x: 24,    y: 23.5},
+  {x: 15.675,y: 13},
+  {x: 0,     y: 67.45},
+  {x:-14.1075,y: 13},
+  {x: 14.1075,y: 13}
+];
+
+// For polygon collision, we define which lines we use on the ship
+// We'll do the same lines we actually draw: (3->6), (2->1->0->4->5)
+function getShipSegments(worldVerts) {
+  return [
+    [ worldVerts[3], worldVerts[6] ],
+    [ worldVerts[2], worldVerts[1] ],
+    [ worldVerts[1], worldVerts[0] ],
+    [ worldVerts[0], worldVerts[4] ],
+    [ worldVerts[4], worldVerts[5] ]
+  ];
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 5) Level selection functions (matching pygame's play_game.py structure)
+////////////////////////////////////////////////////////////////////////////////
+function initLevelSelect() {
+  const levelGrid = document.querySelector('.level-grid');
+  levelGrid.innerHTML = '';
+
+  // Create 10 level buttons - all unlocked
+  for (let i = 1; i <= 10; i++) {
+    const levelDiv = document.createElement('div');
+    levelDiv.className = 'level-button';
+    levelDiv.dataset.level = i;
+    
+    // Add best time if available
+    const bestTime = getBestTime(i);
+    const timeValue = bestTime !== null ? `${bestTime.toFixed(2)}s` : 'No record';
+    
+    // Create minimap container
+    levelDiv.innerHTML = `
+      <div class="level-title">Level ${i}</div>
+      <div class="level-minimap">
+        <canvas id="levelMinimap-${i}" width="150" height="120"></canvas>
+      </div>
+      <div class="level-time ${bestTime === null ? 'no-record' : ''}">${timeValue}</div>
+    `;
+    
+    // Add click event - all levels are available
+    levelDiv.addEventListener('click', () => {
+      startLevel(i);
+    });
+    
+    levelGrid.appendChild(levelDiv);
+    
+    // Render minimap for this level
+    renderLevelMinimap(i);
+  }
+}
+
+// Render a minimap preview for a specific level
+function renderLevelMinimap(levelNum) {
+  const canvas = document.getElementById(`levelMinimap-${levelNum}`);
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  
+  // Clear and set background
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(0, 0, width, height);
+  
+  // Get level data
+  const { DL, EL, GL } = getDLForLevel(levelNum);
+  if (!DL || DL.length < 1) return;
+  
+  // Parse map data temporarily
+  const parsedData = parseFlashMapData(levelNum);
+  if (!parsedData || !parsedData.vertices || !parsedData.lines) return;
+  
+  // Calculate bounding box
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of parsedData.vertices) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.y > maxY) maxY = v.y;
+  }
+  
+  // Calculate scale to fit the canvas with padding
+  const mapW = maxX - minX;
+  const mapH = maxY - minY;
+  const scale = Math.min((width - 20) / mapW, (height - 20) / mapH);
+  
+  // Calculate centering offsets
+  const offsetX = (width - mapW * scale) / 2;
+  const offsetY = (height - mapH * scale) / 2;
+  
+  // Helper function to map world coordinates to minimap coordinates
+  function mapToMinimap(wx, wy) {
+    return {
+      x: (wx - minX) * scale + offsetX,
+      y: (wy - minY) * scale + offsetY
+    };
+  }
+  
+  // Draw lines
+  ctx.strokeStyle = '#00FF41';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  
+  // Limit the number of lines for complex maps
+  const lineStep = parsedData.lines.length > 500 ? 2 : 1;
+  
+  for (let i = 0; i < parsedData.lines.length; i += lineStep) {
+    const [i1, i2] = parsedData.lines[i];
+    const v1 = parsedData.vertices[i1];
+    const v2 = parsedData.vertices[i2];
+    const p1 = mapToMinimap(v1.x, v1.y);
+    const p2 = mapToMinimap(v2.x, v2.y);
+    
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+  }
+  
+  ctx.stroke();
+  
+  // Draw pickups
+  if (parsedData.pickups && parsedData.pickups.length > 0) {
+    ctx.strokeStyle = '#FFF';
+    ctx.beginPath();
+    
+    for (const pickupIdx of parsedData.pickups) {
+      const p = parsedData.vertices[pickupIdx];
+      const pm = mapToMinimap(p.x, p.y);
+      ctx.moveTo(pm.x + 2, pm.y);
+      ctx.arc(pm.x, pm.y, 2, 0, 2 * Math.PI);
+    }
+    
+    ctx.stroke();
+  }
+  
+  // Draw ship start position if available
+  if (parsedData.startIndex !== null && parsedData.startIndex !== undefined) {
+    const shipStart = parsedData.vertices[parsedData.startIndex];
+    if (shipStart) {
+      const shipPos = mapToMinimap(shipStart.x, shipStart.y);
+      
+      ctx.fillStyle = '#FF00FF';
+      ctx.beginPath();
+      ctx.arc(shipPos.x, shipPos.y, 3, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+}
+
+function startLevel(levelNum) {
+  // Switch to game screen
+  document.getElementById('levelSelectScreen').style.display = 'none';
+  document.getElementById('leaderboardScreen').style.display = 'none';
+  document.getElementById('gameScreen').style.display = 'block';
+  
+  // Reset game state for new level
+  gameState.currentRecording = [];
+  gameState.gameActive = false;
+  
+  // Load level and start game
+  loadLevel(levelNum);
+}
+
+function showLevelSelect() {
+  // Stop any ongoing game
+  gameState.gameActive = false;
+  
+  // Update level select screen
+  initLevelSelect();
+  
+  // Switch to level select screen
+  document.getElementById('gameScreen').style.display = 'none';
+  document.getElementById('leaderboardScreen').style.display = 'none';
+  document.getElementById('levelSelectScreen').style.display = 'block';
+}
+
+function showLeaderboard() {
+  // Update leaderboard data
+  updateLeaderboardDisplay();
+  
+  // Switch to leaderboard screen
+  document.getElementById('gameScreen').style.display = 'none';
+  document.getElementById('levelSelectScreen').style.display = 'none';
+  document.getElementById('leaderboardScreen').style.display = 'block';
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 6) loadLevel(levelNum) merges arrays, parses them, picks spawn, etc.
+////////////////////////////////////////////////////////////////////////////////
+function loadLevel(levelNum) {
+  currentLevel = levelNum;
+  const parsed = parseFlashMapData(levelNum);
+  gameState.mapData = parsed;
+
+  // build pickups array
+  gameState.pickups = [];
+  for(const idx of parsed.pickups){
+    const v = parsed.vertices[idx];
+    gameState.pickups.push({ x:v.x, y:v.y, collected:false });
+  }
+  gameState.pickupsRemaining = gameState.pickups.length;
+
+  // find bounding box
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity;
+  for(const v of parsed.vertices) {
+    if(v.x<minX)minX=v.x;
+    if(v.x>maxX)maxX=v.x;
+    if(v.y<minY)minY=v.y;
+    if(v.y>maxY)maxY=v.y;
+  }
+  gameState.bounds = { minX, maxX, minY, maxY };
+
+  // Get best time for this level
+  gameState.bestTime = getBestTime(currentLevel);
+  
+  console.log(`Loading level ${currentLevel}, pickups: ${gameState.pickupsRemaining}`);
+  
+  // Load ghost data if available
+  loadGhostForLevel(currentLevel);
+  
+  resetGame();
+  startGame();
+}
+
+// Load ghost data for a specific level - similar to pygame's implementation
+function loadGhostForLevel(levelNum) {
+  // Reset ghost data
+  gameState.ghost.replayData = null;
+  gameState.ghost.replayIndex = 0;
+  
+  // Only set up ghost if enabled
+  if (!gameState.ghost.enabled) return;
+  
+  // Try to load ghost data for this level
+  const ghostReplay = loadGhost(levelNum);
+  if (ghostReplay) {
+    console.log(`Loaded ghost data for level ${levelNum}, time: ${ghostReplay.time}s, positions: ${ghostReplay.positions.length}`);
+    gameState.ghost.replayData = ghostReplay.positions;
+    gameState.ghost.bestTime = ghostReplay.time;
+  } else {
+    console.log(`No ghost data available for level ${levelNum}`);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 6) resetGame
+//    We read mapData.startIndex to place the ship exactly as the Flash code did
+////////////////////////////////////////////////////////////////////////////////
+function resetGame() {
+  console.log("Resetting game, level=", currentLevel);
+  
+  // Reset level completion flag
+  gameState.levelCompleted = false;
+  gameState.gameTime = 0;
+  gameState.currentRecording = []; // Reset ghost recording
+
+  // re-collect pickups
+  for(const p of gameState.pickups) { p.collected=false; }
+  gameState.pickupsRemaining = gameState.pickups.length;
+  gameState.particles = [];
+
+  if(!gameState.mapData || gameState.mapData.startIndex==null) {
+    // fallback if no data
+    gameState.ship.x = (gameState.bounds.minX + gameState.bounds.maxX)*0.5;
+    gameState.ship.y = gameState.bounds.minY + 200;
+  } else {
+    // The exact spawn logic from Flash:
+    //  "startIndex" is the vertex for the ship’s start (IL in Flash).
+    const sIdx = gameState.mapData.startIndex;
+    const v    = gameState.mapData.vertices[sIdx];
+    gameState.ship.x = v.x;
+    gameState.ship.y = v.y - 100; // place slightly above the exact spot, if you like
+  }
+
+  gameState.ship.vx=0; gameState.ship.vy=0;
+  gameState.ship.rotation=0;
+  gameState.ship.thrusting=false;
+  gameState.ship.rotatingLeft=false;
+  gameState.ship.rotatingRight=false;
+  gameState.ship.exploded=false;
+
+  // Set camera to match pygame's behavior
+  gameState.camera.x = gameState.ship.x;
+  gameState.camera.y = gameState.ship.y;
+  gameState.camera.zoom = 0.8; // Match pygame's scale more closely
+  gameState.camera.targetZoom = 0.8;
+
+  // Reset ghost replay index and interpolation values
+  gameState.ghost.replayIndex = 0;
+  gameState.ghost.prevIndex = 0;
+  gameState.ghost.nextIndex = 0;
+  gameState.ghost.interpolation = 0;
+  
+  // Reset camera tracking for vertex cache optimization
+  gameState.camera.lastX = gameState.camera.x;
+  gameState.camera.lastY = gameState.camera.y;
+  gameState.camera.lastZoom = gameState.camera.zoom;
+
+  // Reset cached data structures for performance
+  clearScreenVertexCache();
+  
+  // Rebuild spatial data structures
+  buildMapLineGrid();
+  initPickupGrid();
+
+  lastTime=0;
+}
+
+// Update the event handlers
+document.getElementById('resetBtn').addEventListener('click', () => {
+  resetGame();
+});
+
+// Resize the game canvas to fit the window
+function resizeGameCanvas() {
+  const canvas = document.getElementById('gameCanvas');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+// Start the game animation with optimized frame timing
+function startGame() {
+  gameState.gameActive = true;
+  
+  // Initialize spatial data structures
+  buildMapLineGrid();
+  initPickupGrid();
+  
+  // Ensure canvas is properly sized
+  resizeGameCanvas();
+  
+  // Start the game loop
+  requestAnimationFrame(updateFrame);
+}
+
+// Handle window resize events
+window.addEventListener('resize', resizeGameCanvas);
+
+////////////////////////////////////////////////////////////////////////////////
+// 7) The update loop
+////////////////////////////////////////////////////////////////////////////////
+// Track performance metrics
+const performanceMetrics = {
+  lastFpsUpdate: 0,
+  frameCount: 0,
+  fps: 0,
+  frameStartTime: 0,
+  lastFrameTime: 0,
+  updateTime: 0,
+  renderTime: 0,
+  totalFrameTime: 0
+};
+
+// Request animation frame with timing optimization
+function updateFrame(timestamp) {
+  // Resize canvas to fit window
+  resizeGameCanvas();
+  
+  // Performance tracking start
+  performanceMetrics.frameStartTime = performance.now();
+  
+  if(!lastTime) lastTime=timestamp;
+  const dt=(timestamp - lastTime)/1000;
+  lastTime=timestamp;
+  const clampedDt=Math.min(dt, 0.1);
+
+  const s=gameState.ship;
+  // update gameTime
+  gameState.gameTime += clampedDt;
+  
+  // Record ship position for ghost replay (adaptive frequency)
+  // Our improved recordGhostPosition has internal logic for determining
+  // when to actually save a frame, so we can call it every frame
+  recordGhostPosition();
+  
+  // Update ghost ship position
+  updateGhostShip();
+
+  // Make timer fade out after 3 seconds
+  if (gameState.gameTime > 3 && !document.getElementById('timer').classList.contains('fadeOut')) {
+    document.getElementById('timer').classList.add('fadeOut');
+  }
+
+  if(!s.exploded) {
+    // Movement physics
+    if(s.rotatingLeft)  s.rotation-= ROTATION_SPEED*clampedDt;
+    if(s.rotatingRight) s.rotation+= ROTATION_SPEED*clampedDt;
+    if(s.thrusting) {
+      const angle=s.rotation - Math.PI*0.5;
+      s.vx += THRUST_POWER*Math.cos(angle)*clampedDt;
+      s.vy += THRUST_POWER*Math.sin(angle)*clampedDt;
+    }
+    s.vy += GRAVITY*clampedDt;
+    s.x  += s.vx*clampedDt;
+    s.y  += s.vy*clampedDt;
+
+    // Collision detection with spatial partitioning
+    if(shipCollisionCheck()) {
+      resetGame();
+    }
+
+    // Pick up items with spatial partitioning
+    updatePickups();
+
+    // Check for level completion
+    if(gameState.pickupsRemaining<=0) {
+      endRun();
+    }
+
+    // Camera follow
+    updateCamera();
+  } else {
+    // Explosion effect would go here
+  }
+  
+  // Track performance - update phase complete
+  performanceMetrics.updateTime = performance.now() - performanceMetrics.frameStartTime;
+  
+  // Simple ghost ship update function
+  function updateGhostShip() {
+    if (!gameState.ghost.enabled || !gameState.ghost.replayData) return;
+    
+    const ghostData = gameState.ghost.replayData;
+    if (ghostData.length === 0) return;
+    
+    // Always full opacity
+    gameState.ghost.opacity = 1.0;
+    
+    // Find the right frames to interpolate between
+    let prevIndex = 0;
+    for (let i = 0; i < ghostData.length; i++) {
+      if (ghostData[i].time <= gameState.gameTime) {
+        prevIndex = i;
+      } else {
+        break;
+      }
+    }
+    
+    // Set nextIndex
+    const nextIndex = Math.min(prevIndex + 1, ghostData.length - 1);
+    
+    // Save indices
+    gameState.ghost.prevIndex = prevIndex;
+    gameState.ghost.nextIndex = nextIndex;
+    
+    // Calculate interpolation factor
+    if (prevIndex === nextIndex) {
+      gameState.ghost.interpolation = 0;
+    } else {
+      const prevTime = ghostData[prevIndex].time;
+      const nextTime = ghostData[nextIndex].time;
+      const timeDiff = nextTime - prevTime;
+      
+      if (timeDiff > 0) {
+        gameState.ghost.interpolation = (gameState.gameTime - prevTime) / timeDiff;
+      } else {
+        gameState.ghost.interpolation = 0;
+      }
+    }
+  }
+
+  FD = DD * ED;
+
+  // Start rendering phase
+  const renderStart = performance.now();
+  
+  // Draw everything
+  drawAll();
+  
+  // Calculate performance metrics
+  performanceMetrics.renderTime = performance.now() - renderStart;
+  performanceMetrics.totalFrameTime = performance.now() - performanceMetrics.frameStartTime;
+  
+  // Update FPS counter every second
+  performanceMetrics.frameCount++;
+  const now = performance.now();
+  if (now - performanceMetrics.lastFpsUpdate > 1000) {
+    performanceMetrics.fps = Math.round((performanceMetrics.frameCount * 1000) / (now - performanceMetrics.lastFpsUpdate));
+    performanceMetrics.frameCount = 0;
+    performanceMetrics.lastFpsUpdate = now;
+    
+    // Update any performance-based optimizations if needed
+    adjustOptimizationLevel(performanceMetrics.fps);
+  }
+  
+  // Schedule next frame
+  requestAnimationFrame(updateFrame);
+}
+
+// Dynamically adjust optimization level based on performance
+function adjustOptimizationLevel(fps) {
+  // If performance is poor, increase optimization
+  if (fps < 30) {
+    // Reduce detail or increase culling
+    mapScreenBounds.margin = 20; // Reduce margin for culling
+    // Don't reassign constants - just use the value in calculations
+  } else if (fps > 55) {
+    // If performance is good, we can afford more detail
+    mapScreenBounds.margin = 50; // Default margin
+  }
+}
+
+function endRun() {
+  // Prevent multiple calls to endRun when level is completed
+  if (gameState.levelCompleted) return;
+  
+  // Mark level as completed
+  gameState.levelCompleted = true;
+  gameState.gameActive = false;
+  
+  // Get completion time
+  const completionTime = gameState.gameTime;
+  const isNewBest = gameState.bestTime === null || completionTime < gameState.bestTime;
+  
+  console.log(`Level ${currentLevel} completed in ${completionTime.toFixed(2)}s`);
+  
+  // Save to leaderboard
+  addLeaderboardEntry(currentLevel, completionTime);
+  
+  // Save ghost data if this is a new best time
+  if (isNewBest) {
+    console.log("New best time! Saving ghost data.");
+    saveGhostReplay(currentLevel, completionTime);
+  }
+  
+  // Show completion message
+  alert(`Level ${currentLevel} Complete!\nTime: ${completionTime.toFixed(2)}s\n${isNewBest ? 'NEW BEST TIME!' : `Best: ${gameState.bestTime.toFixed(2)}s`}`);
+  
+  // Return to level select
+  showLevelSelect();
+}
+
+function updateCamera() {
+  const s = gameState.ship;
+  const cam = gameState.camera;
+
+  // Always lock the camera directly to the ship position
+  cam.x = s.x;
+  cam.y = s.y;
+  
+  // Set zoom to match pygame scale
+  // We use a constant zoom factor to match pygame's scaling
+  cam.zoom = 0.8;  // This matches pygame's scale better
+}
+
+// Optimized pickup detection with distance squared to avoid expensive sqrt
+// Spatial partitioning for pickups
+const PICKUP_GRID_SIZE = 200; // Size of each grid cell
+const pickupGrid = new Map(); // Map of grid coordinates to pickup indices
+
+// Initialize pickup grid for fast spatial lookup
+function initPickupGrid() {
+  pickupGrid.clear();
+  
+  const pickups = gameState.pickups;
+  const pickupCount = pickups.length;
+  
+  for (let i = 0; i < pickupCount; i++) {
+    const p = pickups[i];
+    if (!p.collected) {
+      // Calculate grid cell
+      const gridX = Math.floor(p.x / PICKUP_GRID_SIZE);
+      const gridY = Math.floor(p.y / PICKUP_GRID_SIZE);
+      const gridKey = `${gridX},${gridY}`;
+      
+      // Add to grid
+      if (!pickupGrid.has(gridKey)) {
+        pickupGrid.set(gridKey, []);
+      }
+      pickupGrid.get(gridKey).push(i);
+    }
+  }
+}
+
+function updatePickups() {
+  const s = gameState.ship;
+  const shipX = s.x;
+  const shipY = s.y;
+  const sr = 36.5;
+  
+  // Precompute squared radius for performance (avoids sqrt in the loop)
+  const radiusSquared = (sr + PICKUP_RADIUS) * (sr + PICKUP_RADIUS);
+  
+  // Get relevant grid cells to check (ship's cell and adjacent cells)
+  const shipGridX = Math.floor(shipX / PICKUP_GRID_SIZE);
+  const shipGridY = Math.floor(shipY / PICKUP_GRID_SIZE);
+  
+  // Check pickup collision only in nearby grid cells
+  let collisionDetected = false;
+  
+  for (let gridX = shipGridX - 1; gridX <= shipGridX + 1; gridX++) {
+    for (let gridY = shipGridY - 1; gridY <= shipGridY + 1; gridY++) {
+      const gridKey = `${gridX},${gridY}`;
+      
+      // Skip if no pickups in this grid cell
+      if (!pickupGrid.has(gridKey)) continue;
+      
+      // Check pickups in this grid cell
+      const pickupIndices = pickupGrid.get(gridKey);
+      const pickups = gameState.pickups;
+      
+      for (let i = 0; i < pickupIndices.length; i++) {
+        const pickupIdx = pickupIndices[i];
+        const p = pickups[pickupIdx];
+        
+        if (!p.collected) {
+          // Calculate distance squared without sqrt
+          const dx = shipX - p.x;
+          const dy = shipY - p.y;
+          const distSquared = dx * dx + dy * dy;
+          
+          // Compare squared distances
+          if (distSquared < radiusSquared) {
+            p.collected = true;
+            gameState.pickupsRemaining--;
+            collisionDetected = true;
+            
+            // Remove from grid
+            pickupIndices.splice(i, 1);
+            i--; // Adjust index after removal
+          }
+        }
+      }
+      
+      // Remove empty grid cells
+      if (pickupIndices.length === 0) {
+        pickupGrid.delete(gridKey);
+      }
+    }
+  }
+  
+  // If we detected collisions, we might want to update audio or visual effects
+  return collisionDetected;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 8) Collision: line intersection
+////////////////////////////////////////////////////////////////////////////////
+function linesIntersect(p1, p2, q1, q2) {
+  const s1x=p2.x-p1.x, s1y=p2.y-p1.y;
+  const s2x=q2.x-q1.x, s2y=q2.y-q1.y;
+  const denom = (-s2x*s1y + s1x*s2y);
+  if(Math.abs(denom)<0.000001) return false; // parallel
+
+  const s = (-s1y*(p1.x-q1.x) + s1x*(p1.y-q1.y))/denom;
+  const t = ( s2x*(p1.y-q1.y) - s2y*(p1.x-q1.x))/denom;
+  return (s>=0 && s<=1 && t>=0 && t<=1);
+}
+
+// Optimized collision detection with spatial partitioning
+// Cached values for collision segments
+const cachedShipSegments = new Array(5);
+for (let i = 0; i < 5; i++) {
+  cachedShipSegments[i] = [{x:0,y:0}, {x:0,y:0}];
+}
+
+// Add a frame counter to make collision checks less frequent during intense moments
+let collisionSkipFrames = 0;
+
+// Spatial grid for collision lines
+const LINE_GRID_SIZE = 500;
+const mapLineGrid = new Map();
+
+// Build spatial grid for map lines
+function buildMapLineGrid() {
+  mapLineGrid.clear();
+  
+  const m = gameState.mapData;
+  if (!m || !m.lines) return;
+  
+  const lines = m.lines;
+  const vertices = m.vertices;
+  const lineCount = lines.length;
+  
+  for (let i = 0; i < lineCount; i++) {
+    const line = lines[i];
+    const v1 = vertices[line[0]];
+    const v2 = vertices[line[1]];
+    
+    // Find all grid cells this line passes through
+    const minGridX = Math.floor(Math.min(v1.x, v2.x) / LINE_GRID_SIZE);
+    const maxGridX = Math.floor(Math.max(v1.x, v2.x) / LINE_GRID_SIZE);
+    const minGridY = Math.floor(Math.min(v1.y, v2.y) / LINE_GRID_SIZE);
+    const maxGridY = Math.floor(Math.max(v1.y, v2.y) / LINE_GRID_SIZE);
+    
+    // Add line to all grid cells it intersects
+    for (let gridX = minGridX; gridX <= maxGridX; gridX++) {
+      for (let gridY = minGridY; gridY <= maxGridY; gridY++) {
+        const gridKey = `${gridX},${gridY}`;
+        
+        if (!mapLineGrid.has(gridKey)) {
+          mapLineGrid.set(gridKey, []);
+        }
+        
+        mapLineGrid.get(gridKey).push(i);
+      }
+    }
+  }
+}
+
+// Ship collision bounding box - reused to avoid GC
+const shipBoundingBox = {
+  minX: 0,
+  maxX: 0,
+  minY: 0,
+  maxY: 0
+};
+
+function shipCollisionCheck() {
+  if(!gameState.mapData || !gameState.mapData.lines) return false;
+  
+  // Skip some collision checks when the ship is moving fast
+  // This is safe because the next frame will catch any collisions
+  if (gameState.ship.vx*gameState.ship.vx + gameState.ship.vy*gameState.ship.vy > 100000) {
+    collisionSkipFrames++;
+    if (collisionSkipFrames % 2 !== 0) return false;
+  } else {
+    collisionSkipFrames = 0;
+  }
+  
+  // Transform ship to world coords - optimized to avoid array creation
+  const s = gameState.ship;
+  const cos = Math.cos(s.rotation);
+  const sin = Math.sin(s.rotation);
+  
+  // Update ship segments with current position (avoid creating new objects)
+  // segment 0: vertices 3->6
+  let rx = shipVerts[3].x * cos - shipVerts[3].y * sin;
+  let ry = shipVerts[3].x * sin + shipVerts[3].y * cos;
+  cachedShipSegments[0][0].x = s.x + rx;
+  cachedShipSegments[0][0].y = s.y + ry;
+  
+  rx = shipVerts[6].x * cos - shipVerts[6].y * sin;
+  ry = shipVerts[6].x * sin + shipVerts[6].y * cos;
+  cachedShipSegments[0][1].x = s.x + rx;
+  cachedShipSegments[0][1].y = s.y + ry;
+  
+  // Segment 1: vertices 2->1
+  rx = shipVerts[2].x * cos - shipVerts[2].y * sin;
+  ry = shipVerts[2].x * sin + shipVerts[2].y * cos;
+  cachedShipSegments[1][0].x = s.x + rx;
+  cachedShipSegments[1][0].y = s.y + ry;
+  
+  rx = shipVerts[1].x * cos - shipVerts[1].y * sin;
+  ry = shipVerts[1].x * sin + shipVerts[1].y * cos;
+  cachedShipSegments[1][1].x = s.x + rx;
+  cachedShipSegments[1][1].y = s.y + ry;
+  
+  // Segment 2: vertices 1->0
+  cachedShipSegments[2][0].x = cachedShipSegments[1][1].x;
+  cachedShipSegments[2][0].y = cachedShipSegments[1][1].y;
+  
+  rx = shipVerts[0].x * cos - shipVerts[0].y * sin;
+  ry = shipVerts[0].x * sin + shipVerts[0].y * cos;
+  cachedShipSegments[2][1].x = s.x + rx;
+  cachedShipSegments[2][1].y = s.y + ry;
+  
+  // Segment 3: vertices 0->4
+  cachedShipSegments[3][0].x = cachedShipSegments[2][1].x;
+  cachedShipSegments[3][0].y = cachedShipSegments[2][1].y;
+  
+  rx = shipVerts[4].x * cos - shipVerts[4].y * sin;
+  ry = shipVerts[4].x * sin + shipVerts[4].y * cos;
+  cachedShipSegments[3][1].x = s.x + rx;
+  cachedShipSegments[3][1].y = s.y + ry;
+  
+  // Segment 4: vertices 4->5
+  cachedShipSegments[4][0].x = cachedShipSegments[3][1].x;
+  cachedShipSegments[4][0].y = cachedShipSegments[3][1].y;
+  
+  rx = shipVerts[5].x * cos - shipVerts[5].y * sin;
+  ry = shipVerts[5].x * sin + shipVerts[5].y * cos;
+  cachedShipSegments[4][1].x = s.x + rx;
+  cachedShipSegments[4][1].y = s.y + ry;
+  
+  // Calculate ship bounding box for quick checks - reuse existing object
+  shipBoundingBox.minX = Infinity;
+  shipBoundingBox.maxX = -Infinity;
+  shipBoundingBox.minY = Infinity;
+  shipBoundingBox.maxY = -Infinity;
+  
+  for (let i = 0; i < 5; i++) {
+    const seg = cachedShipSegments[i];
+    shipBoundingBox.minX = Math.min(shipBoundingBox.minX, seg[0].x, seg[1].x);
+    shipBoundingBox.maxX = Math.max(shipBoundingBox.maxX, seg[0].x, seg[1].x);
+    shipBoundingBox.minY = Math.min(shipBoundingBox.minY, seg[0].y, seg[1].y);
+    shipBoundingBox.maxY = Math.max(shipBoundingBox.maxY, seg[0].y, seg[1].y);
+  }
+  
+  // Expand ship bounding box slightly for safety
+  const expandAmount = 5;
+  shipBoundingBox.minX -= expandAmount;
+  shipBoundingBox.maxX += expandAmount;
+  shipBoundingBox.minY -= expandAmount;
+  shipBoundingBox.maxY += expandAmount;
+  
+  // Find grid cells to check based on ship bounding box
+  const minGridX = Math.floor(shipBoundingBox.minX / LINE_GRID_SIZE);
+  const maxGridX = Math.floor(shipBoundingBox.maxX / LINE_GRID_SIZE);
+  const minGridY = Math.floor(shipBoundingBox.minY / LINE_GRID_SIZE);
+  const maxGridY = Math.floor(shipBoundingBox.maxY / LINE_GRID_SIZE);
+  
+  // Track which lines we've already checked to avoid duplicates
+  const checkedLines = new Set();
+  
+  // Get map data
+  const m = gameState.mapData;
+  const lines = m.lines;
+  const vertices = m.vertices;
+  
+  // Check lines in each potential grid cell
+  for (let gridX = minGridX; gridX <= maxGridX; gridX++) {
+    for (let gridY = minGridY; gridY <= maxGridY; gridY++) {
+      const gridKey = `${gridX},${gridY}`;
+      
+      if (!mapLineGrid.has(gridKey)) continue;
+      
+      const lineIndices = mapLineGrid.get(gridKey);
+      
+      for (let i = 0; i < lineIndices.length; i++) {
+        const lineIdx = lineIndices[i];
+        
+        // Skip if we've already checked this line
+        if (checkedLines.has(lineIdx)) continue;
+        checkedLines.add(lineIdx);
+        
+        const line = lines[lineIdx];
+        const v1 = vertices[line[0]];
+        const v2 = vertices[line[1]];
+        
+        // Quick bounding box check to eliminate most lines
+        if (Math.max(v1.x, v2.x) < shipBoundingBox.minX || 
+            Math.min(v1.x, v2.x) > shipBoundingBox.maxX || 
+            Math.max(v1.y, v2.y) < shipBoundingBox.minY || 
+            Math.min(v1.y, v2.y) > shipBoundingBox.maxY) {
+          continue; // Skip line, can't possibly intersect
+        }
+        
+        // Check ship segment collisions
+        for (let j = 0; j < 5; j++) {
+          const shipSeg = cachedShipSegments[j];
+          if (linesIntersect(shipSeg[0], shipSeg[1], v1, v2)) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  
+  return false;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 9) Drawing
+////////////////////////////////////////////////////////////////////////////////
+// Flag to control rendering expensive debug information
+let showPerformanceInfo = false;
+
+// Optimized render function
+function drawAll() {
+  // Clear with a single operation
+  ctx.clearRect(0,0,canvas.width, canvas.height);
+  
+  // Draw world elements - order matters for performance (fewer state changes)
+  drawMap();
+  drawPickups();
+  
+  // Draw ghost ship if enabled
+  if (gameState.ghost.enabled && gameState.ghost.replayData && gameState.ghost.replayData.length > 0) {
+    drawGhostShip();
+  }
+  
+  drawShip();
+  drawMiniMap();
+
+  // Update UI elements efficiently
+  // Only update if the values actually changed to reduce DOM operations
+  const timerElement = document.getElementById('timer');
+  const currentTimeText = gameState.gameTime.toFixed(2);
+  if (timerElement.textContent !== currentTimeText) {
+    timerElement.textContent = currentTimeText;
+  }
+  
+  const pickupsElement = document.getElementById('pickups');
+  const pickupsText = `Pickups Left: ${gameState.pickupsRemaining}`;
+  if (pickupsElement.textContent !== pickupsText) {
+    pickupsElement.textContent = pickupsText;
+  }
+  
+  const bestElement = document.getElementById('best');
+  const bestText = gameState.bestTime !== null 
+    ? `Best Time: ${gameState.bestTime.toFixed(2)}s` 
+    : 'Best Time: none';
+  if (bestElement.textContent !== bestText) {
+    bestElement.textContent = bestText;
+  }
+  
+  // Performance monitoring - only when explicitly enabled
+  if (showPerformanceInfo) {
+    // Position in bottom left corner
+    const perfPanelX = 10;
+    const perfPanelY = canvas.height - 90; // Position from bottom
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(perfPanelX, perfPanelY, 200, 80);
+    
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#0F0'; // Green text for better visibility
+    ctx.fillText(`FPS: ${performanceMetrics.fps}`, perfPanelX + 10, perfPanelY + 20);
+    ctx.fillText(`Update: ${performanceMetrics.updateTime.toFixed(1)}ms`, perfPanelX + 10, perfPanelY + 40);
+    ctx.fillText(`Render: ${performanceMetrics.renderTime.toFixed(1)}ms`, perfPanelX + 10, perfPanelY + 60);
+    ctx.fillText(`Total: ${performanceMetrics.totalFrameTime.toFixed(1)}ms`, perfPanelX + 10, perfPanelY + 80);
+  }
+}
+
+// Simplified ghost ship drawing
+function drawGhostShip() {
+  if (!gameState.ghost.replayData || gameState.ghost.replayData.length === 0) return;
+  
+  // Get frames to interpolate between
+  const prevIndex = gameState.ghost.prevIndex;
+  const nextIndex = gameState.ghost.nextIndex;
+  const interpolation = gameState.ghost.interpolation;
+  
+  // Get frame data
+  const prevFrame = gameState.ghost.replayData[prevIndex];
+  
+  // Position and rotation
+  let ghostX = prevFrame.x;
+  let ghostY = prevFrame.y;
+  let ghostRotation = prevFrame.rotation;
+  let ghostThrusting = prevFrame.thrusting;
+  
+  // Simple interpolation
+  if (prevIndex !== nextIndex && interpolation > 0) {
+    const nextFrame = gameState.ghost.replayData[nextIndex];
+    ghostX = prevFrame.x + (nextFrame.x - prevFrame.x) * interpolation;
+    ghostY = prevFrame.y + (nextFrame.y - prevFrame.y) * interpolation;
+    ghostRotation = prevFrame.rotation + (nextFrame.rotation - prevFrame.rotation) * interpolation;
+    ghostThrusting = prevFrame.thrusting;
+  }
+  
+  // Transform to screen
+  const cos = Math.cos(ghostRotation);
+  const sin = Math.sin(ghostRotation);
+  const scVerts = shipVerts.map(v => {
+    const rx = v.x * cos - v.y * sin;
+    const ry = v.x * sin + v.y * cos;
+    return worldToScreen(ghostX + rx, ghostY + ry);
+  });
+  
+  // Blue semi-transparent color
+  ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
+  ctx.lineWidth = 2;
+  
+  // Draw ship outline
+  ctx.beginPath();
+  ctx.moveTo(scVerts[3].x, scVerts[3].y);
+  ctx.lineTo(scVerts[6].x, scVerts[6].y);
+  ctx.moveTo(scVerts[2].x, scVerts[2].y);
+  ctx.lineTo(scVerts[1].x, scVerts[1].y);
+  ctx.lineTo(scVerts[0].x, scVerts[0].y);
+  ctx.lineTo(scVerts[4].x, scVerts[4].y);
+  ctx.lineTo(scVerts[5].x, scVerts[5].y);
+  ctx.stroke();
+  
+  // Draw thruster if active
+  if (ghostThrusting) {
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.moveTo(scVerts[8].x, scVerts[8].y);
+    ctx.lineTo(scVerts[7].x, scVerts[7].y);
+    ctx.lineTo(scVerts[9].x, scVerts[9].y);
+    ctx.stroke();
+  }
+}
+
+// Pre-compute screen bounds for visibility testing - global scope for reuse
+const mapScreenBounds = {
+  margin: 50,
+  width: 0,
+  height: 0,
+  minX: 0,
+  maxX: 0,
+  minY: 0,
+  maxY: 0
+};
+
+// Update screen bounds
+function updateScreenBounds() {
+  mapScreenBounds.width = canvas.width + mapScreenBounds.margin * 2;
+  mapScreenBounds.height = canvas.height + mapScreenBounds.margin * 2;
+  mapScreenBounds.minX = -mapScreenBounds.margin;
+  mapScreenBounds.maxX = canvas.width + mapScreenBounds.margin;
+  mapScreenBounds.minY = -mapScreenBounds.margin;
+  mapScreenBounds.maxY = canvas.height + mapScreenBounds.margin;
+}
+
+// Cache for transformed vertices - avoids repeated calculations
+const screenVertexCache = new Map();
+
+// Clear vertex cache when camera changes
+function clearScreenVertexCache() {
+  screenVertexCache.clear();
+}
+
+// More optimized map rendering with spatial partitioning
+function drawMap() {
+  const md = gameState.mapData;
+  if(!md || !md.lines) return;
+  
+  const lines = md.lines;
+  const vertices = md.vertices;
+  const lineCount = lines.length;
+  
+  // Update screen bounds if needed
+  updateScreenBounds();
+  
+  // Set styles once before the loop
+  ctx.strokeStyle = '#00FF00';
+  ctx.lineWidth = 2;
+  
+  // Clear vertex cache if camera changed
+  if (gameState.camera.lastX !== gameState.camera.x || 
+      gameState.camera.lastY !== gameState.camera.y ||
+      gameState.camera.lastZoom !== gameState.camera.zoom) {
+    clearScreenVertexCache();
+    gameState.camera.lastX = gameState.camera.x;
+    gameState.camera.lastY = gameState.camera.y;
+    gameState.camera.lastZoom = gameState.camera.zoom;
+  }
+  
+  // Optimization: batch lines together in a single path
+  ctx.beginPath();
+  
+  for(let i = 0; i < lineCount; i++) {
+    const line = lines[i];
+    const v1Idx = line[0];
+    const v2Idx = line[1];
+    
+    // Get or calculate screen coordinates using cache
+    let s1, s2;
+    
+    if (screenVertexCache.has(v1Idx)) {
+      s1 = screenVertexCache.get(v1Idx);
+    } else {
+      const v1 = vertices[v1Idx];
+      s1 = worldToScreen(v1.x, v1.y);
+      screenVertexCache.set(v1Idx, s1);
+    }
+    
+    if (screenVertexCache.has(v2Idx)) {
+      s2 = screenVertexCache.get(v2Idx);
+    } else {
+      const v2 = vertices[v2Idx];
+      s2 = worldToScreen(v2.x, v2.y);
+      screenVertexCache.set(v2Idx, s2);
+    }
+    
+    // Fast off-screen culling
+    if ((s1.x < mapScreenBounds.minX && s2.x < mapScreenBounds.minX) || 
+        (s1.x > mapScreenBounds.maxX && s2.x > mapScreenBounds.maxX) ||
+        (s1.y < mapScreenBounds.minY && s2.y < mapScreenBounds.minY) ||
+        (s1.y > mapScreenBounds.maxY && s2.y > mapScreenBounds.maxY)) {
+      continue; // Skip this line, it's offscreen
+    }
+    
+    // Draw the line
+    ctx.moveTo(s1.x, s1.y);
+    ctx.lineTo(s2.x, s2.y);
+  }
+  
+  // Draw all lines at once
+  ctx.stroke();
+}
+
+function drawPickups() {
+  // Only set styles once, outside the loop
+  ctx.strokeStyle = '#FFFFFF';
+  ctx.lineWidth = 2;
+  
+  // Use a single path for all pickups - reduces stroke() calls
+  ctx.beginPath();
+  
+  // Pre-calculate pickup radius
+  const scaledRadius = PICKUP_RADIUS * gameState.camera.zoom;
+  
+  // Get visible screen bounds with a margin
+  const margin = 100;
+  const screenMinX = -margin;
+  const screenMaxX = canvas.width + margin;
+  const screenMinY = -margin;
+  const screenMaxY = canvas.height + margin;
+  
+  for(const p of gameState.pickups) {
+    if(!p.collected) {
+      const scr = worldToScreen(p.x, p.y);
+      
+      // Skip offscreen pickups for performance
+      if (scr.x < screenMinX || scr.x > screenMaxX || 
+          scr.y < screenMinY || scr.y > screenMaxY) {
+        continue;
+      }
+      
+      // Draw the pickup
+      ctx.moveTo(scr.x + scaledRadius, scr.y);
+      ctx.arc(scr.x, scr.y, scaledRadius, 0, 2 * Math.PI);
+    }
+  }
+  
+  // Draw all pickups at once
+  ctx.stroke();
+}
+
+function drawShip() {
+  const s=gameState.ship;
+  if(s.exploded){
+    // e.g. drawExplosion();
+    return;
+  }
+  
+  // Pre-compute sine and cosine
+  const cos=Math.cos(s.rotation);
+  const sin=Math.sin(s.rotation);
+  
+  // Optimized rendering - avoid array allocation and maps
+  ctx.strokeStyle='#00FF00';
+  ctx.lineWidth=2.5;
+  
+  // Draw ship body directly
+  ctx.beginPath();
+  
+  // Transform and draw first line (3->6)
+  let rx = shipVerts[3].x * cos - shipVerts[3].y * sin;
+  let ry = shipVerts[3].x * sin + shipVerts[3].y * cos;
+  let screen1 = worldToScreen(s.x + rx, s.y + ry);
+  
+  rx = shipVerts[6].x * cos - shipVerts[6].y * sin;
+  ry = shipVerts[6].x * sin + shipVerts[6].y * cos;
+  let screen2 = worldToScreen(s.x + rx, s.y + ry);
+  
+  ctx.moveTo(screen1.x, screen1.y);
+  ctx.lineTo(screen2.x, screen2.y);
+  
+  // Draw main ship shape (2->1->0->4->5)
+  rx = shipVerts[2].x * cos - shipVerts[2].y * sin;
+  ry = shipVerts[2].x * sin + shipVerts[2].y * cos;
+  screen1 = worldToScreen(s.x + rx, s.y + ry);
+  ctx.moveTo(screen1.x, screen1.y);
+  
+  for (let i of [1, 0, 4, 5]) {
+    rx = shipVerts[i].x * cos - shipVerts[i].y * sin;
+    ry = shipVerts[i].x * sin + shipVerts[i].y * cos;
+    screen1 = worldToScreen(s.x + rx, s.y + ry);
+    ctx.lineTo(screen1.x, screen1.y);
+  }
+  
+  // Complete drawing
+  ctx.stroke();
+
+  // thruster 8->7->9 if thrusting
+  if(s.thrusting){
+    ctx.beginPath();
+    ctx.lineWidth=1.25;
+    
+    // Thruster line 8->7->9
+    rx = shipVerts[8].x * cos - shipVerts[8].y * sin;
+    ry = shipVerts[8].x * sin + shipVerts[8].y * cos;
+    screen1 = worldToScreen(s.x + rx, s.y + ry);
+    ctx.moveTo(screen1.x, screen1.y);
+    
+    rx = shipVerts[7].x * cos - shipVerts[7].y * sin;
+    ry = shipVerts[7].x * sin + shipVerts[7].y * cos;
+    screen1 = worldToScreen(s.x + rx, s.y + ry);
+    ctx.lineTo(screen1.x, screen1.y);
+    
+    rx = shipVerts[9].x * cos - shipVerts[9].y * sin;
+    ry = shipVerts[9].x * sin + shipVerts[9].y * cos;
+    screen1 = worldToScreen(s.x + rx, s.y + ry);
+    ctx.lineTo(screen1.x, screen1.y);
+    
+    ctx.stroke();
+  }
+}
+
+function drawMiniMap() {
+  // Use offscreen canvas if available, otherwise use the regular canvas
+  const ctx = window.offscreenMiniMapCtx || miniMapCtx;
+  const canvas = window.offscreenMiniMapCanvas || miniMapCanvas;
+  
+  // Clear and set background
+  ctx.clearRect(0, 0, 200, 150);
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(0, 0, 200, 150);
+
+  const md = gameState.mapData;
+  if(!md || !md.lines) return;
+  
+  // Calculate bounding box and scale
+  const {minX, maxX, minY, maxY} = gameState.bounds;
+  const mapW = maxX - minX;
+  const mapH = maxY - minY;
+  const scale = Math.min(200/mapW, 150/mapH);
+
+  // Reused object for coordinate mapping to reduce GC
+  const miniPoint = {x: 0, y: 0};
+  
+  function mapToMini(wx, wy){
+    miniPoint.x = (wx - minX) * scale;
+    miniPoint.y = (wy - minY) * scale;
+    return miniPoint;
+  }
+
+  // Batch all lines for better performance
+  ctx.strokeStyle = '#00FF00';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  
+  // Only render a subset of lines if the map is very complex
+  const lineStep = md.lines.length > 1000 ? 2 : 1; // Skip every other line on complex maps
+  
+  for(let i = 0; i < md.lines.length; i += lineStep) {
+    const [i1, i2] = md.lines[i];
+    const v1 = md.vertices[i1];
+    const v2 = md.vertices[i2];
+    const p1 = mapToMini(v1.x, v1.y);
+    
+    // We reuse the same object, so capture x,y before next call
+    const p1x = p1.x;
+    const p1y = p1.y;
+    
+    const p2 = mapToMini(v2.x, v2.y);
+    ctx.moveTo(p1x, p1y);
+    ctx.lineTo(p2.x, p2.y);
+  }
+  
+  // Draw all lines at once
+  ctx.stroke();
+
+  // Draw pickups - batch where possible
+  ctx.strokeStyle = '#FFF';
+  ctx.beginPath();
+  
+  for(const p of gameState.pickups){
+    if(!p.collected){
+      const pm = mapToMini(p.x, p.y);
+      ctx.moveTo(pm.x + 2, pm.y);
+      ctx.arc(pm.x, pm.y, 2, 0, 2 * Math.PI);
+    }
+  }
+  
+  ctx.stroke();
+
+  // Draw ship
+  const s = gameState.ship;
+  const sp = mapToMini(s.x, s.y);
+  ctx.fillStyle = '#FFF';
+  ctx.beginPath();
+  ctx.arc(sp.x, sp.y, 3, 0, 2 * Math.PI);
+  ctx.fill();
+  
+  // If using offscreen canvas, copy to the visible canvas
+  if (window.offscreenMiniMapCanvas && window.offscreenMiniMapCtx) {
+    miniMapCtx.clearRect(0, 0, 200, 150);
+    miniMapCtx.drawImage(window.offscreenMiniMapCanvas, 0, 0);
+  }
+}
+const STAGE_WIDTH  = 600;
+const STAGE_HEIGHT = 450;
+
+// This matches J$.ED = Math.sqrt(600*450)/Math.sqrt(1024*768)
+const ED = Math.sqrt(STAGE_WIDTH*STAGE_HEIGHT) / Math.sqrt(1024*768);
+
+// The SWF has DD (dynamic scale) and FD = DD*ED
+let DD = 1.0;
+let FD = 1.0;
+
+
+////////////////////////////////////////////////////////////////////////////////
+// 10) The standard camera transform
+////////////////////////////////////////////////////////////////////////////////
+function worldToScreen(wx, wy) {
+  // Use camera position and zoom like pygame does
+  const cam = gameState.camera;
+  
+  // Center on camera position, apply zoom, offset to canvas center
+  const sx = (wx - cam.x) * cam.zoom + canvas.width * 0.5;
+  const sy = (wy - cam.y) * cam.zoom + canvas.height * 0.5;
+  
+  return { x: sx, y: sy };
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// 11) Keyboard
+////////////////////////////////////////////////////////////////////////////////
+window.addEventListener('keydown', e=>{
+  const s=gameState.ship;
+  if(s.exploded) return;
+  switch(e.key){
+    case 'ArrowLeft':  s.rotatingLeft=true;  break;
+    case 'ArrowRight': s.rotatingRight=true; break;
+    case ' ':          s.thrusting=true;     break;
+  }
+});
+window.addEventListener('keyup', e=>{
+  const s=gameState.ship;
+  switch(e.key){
+    case 'ArrowLeft':  s.rotatingLeft=false;  break;
+    case 'ArrowRight': s.rotatingRight=false; break;
+    case ' ':          s.thrusting=false;     break;
+  }
+});
+
+// Keyboard shortcuts like pygame, with added performance debug toggle
+window.addEventListener('keydown', e=>{
+  if(e.key==='e' && !gameState.ship.exploded) {
+    gameState.ship.exploded=true;
+    // createExplosion();
+  } else if(e.key==='r') {
+    // Reset level (like in pygame)
+    resetGame();
+  } else if(e.key==='g') {
+    // Toggle ghost ship (like in pygame)
+    gameState.ghost.enabled = !gameState.ghost.enabled;
+    document.getElementById('ghostToggle').textContent = `Ghost: ${gameState.ghost.enabled ? 'On' : 'Off'}`;
+    document.getElementById('ghostToggle').classList.toggle('active', gameState.ghost.enabled);
+    loadGhostForLevel(currentLevel);
+  } else if(e.key==='p') {
+    // Toggle performance metrics
+    showPerformanceInfo = !showPerformanceInfo;
+  }
+});
+
+////////////////////////////////////////////////////////////////////////////////
+// 12) UI event listeners
+////////////////////////////////////////////////////////////////////////////////
+
+// Level selection screen
+document.getElementById('leaderboardBtn').addEventListener('click', () => {
+  showLeaderboard();
+});
+
+// Leaderboard screen
+document.getElementById('backToLevelsFromLeaderboard').addEventListener('click', () => {
+  showLevelSelect();
+});
+
+document.getElementById('leaderboardLevelSelect').addEventListener('change', (e) => {
+  updateLeaderboardDisplay(e.target.value);
+});
+
+// Game screen
+document.getElementById('backToLevels').addEventListener('click', () => {
+  gameState.gameActive = false;
+  showLevelSelect();
+});
+
+// Ghost toggle
+document.getElementById('ghostToggle').addEventListener('click', (e) => {
+  gameState.ghost.enabled = !gameState.ghost.enabled;
+  e.target.textContent = `Ghost: ${gameState.ghost.enabled ? 'On' : 'Off'}`;
+  e.target.classList.toggle('active', gameState.ghost.enabled);
+  
+  if (gameState.ghost.enabled) {
+    loadGhostForLevel(currentLevel);
+  }
+});
+
+// Timer focus/unfocus
+document.getElementById('timer').addEventListener('mouseenter', () => {
+  document.getElementById('timer').classList.remove('fadeOut');
+});
+
+document.getElementById('timer').addEventListener('mouseleave', () => {
+  if (gameState.gameTime > 3) {
+    document.getElementById('timer').classList.add('fadeOut');
+  }
+});
+
+// init
+function init() {
+  // Load saved data
+  loadLeaderboards();
+  loadGhostData();
+  
+  // Pre-initialize performance tracking
+  performanceMetrics.lastFpsUpdate = performance.now();
+  
+  // Initialize level select screen
+  initLevelSelect();
+  
+  // Start with level select screen visible
+  document.getElementById('gameScreen').style.display = 'none';
+  document.getElementById('leaderboardScreen').style.display = 'none';
+  document.getElementById('levelSelectScreen').style.display = 'block';
+  
+  
+  // Enable performance optimizations
+  // Request high performance from the browser
+  if (navigator.scheduling && navigator.scheduling.isInputPending) {
+    // Modern browsers can use this API to better schedule work
+    console.log("Using modern scheduling API");
+  }
+  
+  // Use offscreen canvas for minimap if supported
+  if (typeof OffscreenCanvas !== 'undefined') {
+    try {
+      const offscreenMiniMap = new OffscreenCanvas(200, 150);
+      const offscreenCtx = offscreenMiniMap.getContext('2d');
+      // Use a custom rendering function for minimap that uses the offscreen canvas
+      window.offscreenMiniMapCanvas = offscreenMiniMap;
+      window.offscreenMiniMapCtx = offscreenCtx;
+      console.log("Using OffscreenCanvas for minimap");
+    } catch (e) {
+      console.warn("OffscreenCanvas creation failed:", e);
+    }
+  }
+  
+  console.log("SpaceAce initialized with performance optimizations");
+  console.log("Controls:");
+  console.log("  Arrow Left/Right: Rotate");
+  console.log("  Space: Thrust");
+  console.log("  R: Reset level");
+  console.log("  G: Toggle ghost ship");
+  console.log("  P: Toggle performance display");
+}
+
+init();
+
+// Toggle ghost on button click - update button text and icon
+document.getElementById('ghostToggle').addEventListener('click', function() {
+  gameState.ghost.enabled = !gameState.ghost.enabled;
+  
+  // Update button text and icon
+  this.innerHTML = gameState.ghost.enabled ? 
+    '<i class="fas fa-ghost"></i> Ghost: On' : 
+    '<i class="fas fa-ghost"></i> Ghost: Off';
+  
+  this.classList.toggle('active', gameState.ghost.enabled);
+  
+  // If we're in an active level, reload ghost data
+  if (gameState.gameActive) {
+    loadGhostForLevel(currentLevel);
+  }
+});
+</script>
+</body>
+</html>
