@@ -5,14 +5,15 @@ from __future__ import annotations
 import multiprocessing
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.vec_env import VecNormalize
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
+from stable_baselines3.common.vec_env import VecEnv, VecNormalize
 
-from spaceace.training.callbacks import MetricsCallback
-from spaceace.training.envs import make_vec_env
+from spaceace.training.callbacks import CurriculumCallback, MetricsCallback
+from spaceace.training.envs import make_random_level_env, make_vec_env
 from spaceace.training.trainer import Trainer, TrainingConfig
 
 
@@ -38,11 +39,38 @@ class Sb3Trainer(Trainer):
     Previously this logic was duplicated across ppo/train.py and ppo/curriculum_train.py.
     Everything PPO-specific lives in DEFAULT_PPO_HPARAMS; strategy selection is
     driven by config.obs / config.reward.
+
+    If ``env_factory`` is provided, it is called instead of the default
+    ``make_vec_env`` to build train/eval VecEnvs.  This lets callers like
+    HrlTrainer inject custom environment wrappers (e.g. WaypointPilotEnv).
     """
 
     algo_cls = PPO
 
+    def __init__(
+        self,
+        env_factory: Callable[[TrainingConfig, int], VecEnv] | None = None,
+        extra_callbacks: list[BaseCallback] | None = None,
+    ):
+        self._env_factory = env_factory
+        self._extra_callbacks = extra_callbacks or []
+
+    def _make_env(self, config: TrainingConfig, n_envs: int, subprocess: bool) -> VecEnv:
+        if self._env_factory is not None:
+            return self._env_factory(config, n_envs)
+        return make_vec_env(
+            level=config.level,
+            max_steps=config.max_episode_steps,
+            n_envs=n_envs,
+            obs=config.obs,
+            reward=config.reward,
+            action_repeat=config.action_repeat,
+            subprocess=subprocess,
+        )
+
     def fit(self, config: TrainingConfig) -> Path:
+        if config.curriculum is not None:
+            return self._fit_curriculum(config)
         save_dir = config.save_dir
         save_dir.mkdir(parents=True, exist_ok=True)
         config.tensorboard_dir.mkdir(parents=True, exist_ok=True)
@@ -59,28 +87,12 @@ class Sb3Trainer(Trainer):
         print(f"Strategies: obs={config.obs} reward={config.reward}")
         print()
 
-        train_env = make_vec_env(
-            level=config.level,
-            max_steps=config.max_episode_steps,
-            n_envs=n_envs,
-            obs=config.obs,
-            reward=config.reward,
-            action_repeat=config.action_repeat,
-            subprocess=True,
-        )
+        train_env = self._make_env(config, n_envs, subprocess=True)
         train_env = VecNormalize(
             train_env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0
         )
 
-        eval_env = make_vec_env(
-            level=config.level,
-            max_steps=config.max_episode_steps,
-            n_envs=1,
-            obs=config.obs,
-            reward=config.reward,
-            action_repeat=config.action_repeat,
-            subprocess=False,
-        )
+        eval_env = self._make_env(config, 1, subprocess=False)
         eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
 
         if config.resume_from:
@@ -109,6 +121,7 @@ class Sb3Trainer(Trainer):
                 deterministic=True,
             ),
             MetricsCallback(),
+            *self._extra_callbacks,
         ]
 
         steps_k = config.total_steps // 1000
@@ -132,3 +145,119 @@ class Sb3Trainer(Trainer):
         train_env.close()
         eval_env.close()
         return final_path.with_suffix(".zip")
+
+    # ------------------------------------------------------------------
+    # Curriculum path
+    # ------------------------------------------------------------------
+
+    def _fit_curriculum(self, config: TrainingConfig) -> Path:
+        """Train across a sequence of LevelStages, advancing on win-rate."""
+        from spaceace.training.calibration import calibrate_stages
+
+        stages = config.curriculum
+        assert stages is not None
+
+        save_dir = config.save_dir
+        save_dir.mkdir(parents=True, exist_ok=True)
+        config.tensorboard_dir.mkdir(parents=True, exist_ok=True)
+
+        n_envs = config.n_envs or multiprocessing.cpu_count()
+
+        # Resolve any stages that need MCTS calibration.
+        calibrate_stages(stages, cache=config.calibration_cache_path)
+
+        print("=== SpaceAce Curriculum Training ===")
+        print(f"Stages: {len(stages)}")
+        for i, s in enumerate(stages):
+            print(f"  Stage {i + 1}: levels {s.levels}, "
+                  f"max_steps={s.max_episode_steps}, advance@{s.advance_win_rate:.0%}")
+        print(f"Total timesteps: {config.total_steps:,}")
+        print(f"Parallel envs: {n_envs}")
+        print(f"Strategies: obs={config.obs} reward={config.reward}")
+        print()
+
+        # Build initial env from the first stage.
+        first = stages[0]
+        train_env = self._make_curriculum_vec_env(
+            first.levels, first.max_episode_steps, n_envs, config, subprocess=True,
+        )
+        train_env = VecNormalize(
+            train_env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0,
+        )
+
+        eval_env = self._make_curriculum_vec_env(
+            first.levels, first.max_episode_steps, 1, config, subprocess=False,
+        )
+        eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+
+        if config.resume_from:
+            print(f"Resuming from: {config.resume_from}")
+            model = self.algo_cls.load(config.resume_from, env=train_env)
+            norm_path = os.path.join(os.path.dirname(config.resume_from), "vec_normalize.pkl")
+            if os.path.exists(norm_path):
+                train_env = VecNormalize.load(norm_path, train_env.venv)
+                print(f"Loaded normalization stats from {norm_path}")
+        else:
+            model = self.algo_cls(
+                "MlpPolicy",
+                train_env,
+                tensorboard_log=str(config.tensorboard_dir),
+                seed=config.seed,
+                **{**DEFAULT_PPO_HPARAMS, "learning_rate": config.learning_rate},
+            )
+
+        curriculum_cb = CurriculumCallback(
+            stages=stages,
+            make_env_fn=make_random_level_env,
+            obs=config.obs,
+            reward=config.reward,
+            action_repeat=config.action_repeat,
+            n_envs=n_envs,
+        )
+
+        callbacks = [
+            EvalCallback(
+                eval_env,
+                best_model_save_path=str(save_dir),
+                log_path=str(save_dir),
+                eval_freq=config.eval_freq,
+                n_eval_episodes=config.eval_episodes,
+                deterministic=True,
+            ),
+            MetricsCallback(),
+            curriculum_cb,
+        ]
+
+        run_name = f"curriculum_{config.total_steps // 1000}k"
+        print(f"Starting curriculum training (run: {run_name})...")
+        start = time.time()
+        model.learn(
+            total_timesteps=config.total_steps,
+            callback=callbacks,
+            tb_log_name=run_name,
+            progress_bar=True,
+        )
+        elapsed = time.time() - start
+        print(f"\nCurriculum training complete in {elapsed:.0f}s ({elapsed / 60:.1f}m)")
+        print(f"Reached stage {curriculum_cb._stage_idx + 1}/{len(stages)}")
+
+        final_path = save_dir / "final_model"
+        model.save(str(final_path))
+        train_env.save(str(save_dir / "vec_normalize.pkl"))
+        print(f"Saved final model to {final_path}.zip")
+
+        train_env.close()
+        eval_env.close()
+        return final_path.with_suffix(".zip")
+
+    @staticmethod
+    def _make_curriculum_vec_env(levels, max_steps, n_envs, config, subprocess):
+        from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+
+        thunks = [
+            make_random_level_env(levels, max_steps, config.obs, config.reward, config.action_repeat)
+            for _ in range(n_envs)
+        ]
+        if subprocess and n_envs > 1:
+            return SubprocVecEnv(thunks, start_method="fork")
+        return DummyVecEnv(thunks)

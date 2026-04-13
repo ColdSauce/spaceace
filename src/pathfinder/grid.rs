@@ -658,6 +658,38 @@ impl PathfinderGrid {
         order.iter().map(|&i| uncollected[i]).collect()
     }
 
+    /// Check if all pickups are reachable from (spawn_x, spawn_y).
+    /// Returns (all_reachable, per_pickup_distances). Unreachable pickups get f64::INFINITY.
+    pub fn validate_reachability(&self, spawn_x: f32, spawn_y: f32) -> (bool, Vec<f64>) {
+        let (sr, sc) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, spawn_x, spawn_y);
+
+        // If spawn is blocked, nothing is reachable
+        if self.blocked[sr * self.cols + sc] {
+            let dists = vec![f64::INFINITY; self.total_pickups];
+            return (false, dists);
+        }
+
+        // Run Dijkstra from spawn
+        let dist = Self::dijkstra_from(self.rows, self.cols, self.min_x, self.min_y,
+                                        &self.blocked, spawn_x, spawn_y);
+
+        let mut all_reachable = true;
+        let mut pickup_dists = Vec::with_capacity(self.total_pickups);
+        for i in 0..self.total_pickups {
+            let (px, py) = self.pickup_coords[i];
+            let (pr, pc) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, px, py);
+            let d = dist[pr * self.cols + pc];
+            if d < 0 {
+                all_reachable = false;
+                pickup_dists.push(f64::INFINITY);
+            } else {
+                // Convert from weighted grid units to world units
+                pickup_dists.push(d as f64 * CELL_SIZE as f64 / 10.0);
+            }
+        }
+        (all_reachable, pickup_dists)
+    }
+
     pub fn get_pickup_coords(&self) -> &[(f32, f32)] {
         &self.pickup_coords
     }

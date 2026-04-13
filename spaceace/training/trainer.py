@@ -18,6 +18,26 @@ class LevelStage:
 
 
 @dataclass
+class AlphaZeroHparams:
+    """AlphaZero-specific hyperparameters. Ignored by PPO/SB3 trainers."""
+
+    iterations: int = 100
+    games_per_iteration: int = 200
+    simulations_per_move: int = 200
+    c_puct: float = 1.5
+    replay_buffer_shards: int = 50
+    network_train_epochs: int = 10
+    network_batch_size: int = 256
+    network_lr: float = 1e-3
+    eval_games: int = 20
+    win_rate_window: int = 3
+    iters_per_level: int = 10
+    win_threshold: float = 0.5
+    generate_curriculum: bool = False
+    fresh: bool = False
+
+
+@dataclass
 class TrainingConfig:
     """Settings a Trainer consumes. Strategy keys resolve against STRATEGY_REGISTRY."""
 
@@ -41,6 +61,8 @@ class TrainingConfig:
 
     curriculum: list[LevelStage] | None = None
     calibration_cache_path: Path | None = None
+
+    alphazero: AlphaZeroHparams = field(default_factory=AlphaZeroHparams)
 
     @property
     def save_dir(self) -> Path:

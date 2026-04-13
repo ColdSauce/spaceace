@@ -1,8 +1,13 @@
-"""AlphaZero training loop: self-play → train → evaluate → repeat."""
+"""AlphaZero training loop: self-play -> train -> evaluate -> repeat.
+
+CLI entry point. The actual training logic lives in AlphaZeroTrainer.
+Run directly or via ``python -m spaceace.agents.alphazero.train``.
+"""
 
 import argparse
 import multiprocessing
 import os
+import subprocess
 import time
 
 import numpy as np
@@ -70,7 +75,6 @@ def get_level_settings(level: int, base_max_steps: int = 3000, base_sims: int = 
 
 def generate_curriculum_maps():
     """Generate curriculum maps using generate_maps.py."""
-    import subprocess
     configs = [
         ("simple", 3000, 100),
         ("room", 3010, 200),
@@ -182,181 +186,46 @@ def evaluate_model(
 
 
 def main():
+    from pathlib import Path
+    from spaceace.agents.alphazero.trainer import AlphaZeroTrainer
+    from spaceace.training.trainer import AlphaZeroHparams, LevelStage, TrainingConfig
+
     args = parse_args()
 
-    # Generate curriculum maps if requested
-    if args.generate_curriculum:
-        generate_curriculum_maps()
+    # Build curriculum from CLI args
+    curriculum = None
+    level = args.level if args.level is not None else 0
+    if args.curriculum is not None:
+        curriculum = [LevelStage(levels=args.curriculum)]
+    elif args.level is None:
+        curriculum = [LevelStage(levels=DEFAULT_CURRICULUM)]
 
-    # Determine level schedule
-    if args.level is not None:
-        levels = [args.level]
-    elif args.curriculum is not None:
-        levels = args.curriculum
-    else:
-        levels = DEFAULT_CURRICULUM
-
-    save_dir = "models/alphazero/curriculum"
-
-    if args.fresh:
-        import shutil
-        for lvl in levels:
-            data_dir = f"data/alphazero/{lvl}"
-            if os.path.exists(data_dir):
-                shutil.rmtree(data_dir)
-        if os.path.exists(save_dir):
-            shutil.rmtree(save_dir)
-        print("Cleared previous training data and models.")
-        args.resume = 0
-
-    os.makedirs(save_dir, exist_ok=True)
-
-    print(f"=== AlphaZero Training ===")
-    print(f"Curriculum: {len(levels)} levels (L{levels[0]} -> L{levels[-1]})")
-    print(f"Win threshold to advance: {args.win_threshold:.0%}")
-    print(f"Max iters/level: {args.iters_per_level}")
-    print(f"Total iterations: {args.iterations}")
-    print(f"Games/iter: {args.games_per_iter}")
-    print(f"Sims/move: {args.num_sims}")
-    print()
-
-    # Initialize or load model
-    model = AlphaZeroNet()
-    best_model_pt = os.path.join(save_dir, "best_model.pt")
-    best_model_onnx = os.path.join(save_dir, "best_model.onnx")
-
-    if args.resume > 0 and os.path.exists(best_model_pt):
-        model.load_state_dict(torch.load(best_model_pt, weights_only=True))
-        print(f"Resumed from {best_model_pt}")
-
-    # Create optimizer once — persists across iterations
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
-
-    iteration = args.resume
-    end_iteration = args.resume + args.iterations
-    level_idx = 0  # current position in curriculum
-    iters_on_current = 0  # iterations spent on current level
-    levels_seen = set()  # track which levels have contributed data
-    recent_win_rates: list[float] = []  # sliding window for smoothed advancement
-    WIN_RATE_WINDOW = 3  # require consistent wins over this many evals
-
-    # Group levels by stage (same settings = same difficulty tier)
-    # Levels within a stage are cycled during self-play for diversity
-    def get_stage_levels(level_idx: int) -> list[int]:
-        """Get all levels in the same difficulty stage as levels[level_idx]."""
-        target = levels[level_idx]
-        for level_range, _, _, _ in CURRICULUM_STAGES:
-            if target in level_range:
-                return [l for l in levels if l in level_range]
-        return [target]
-
-    # Data dirs
-    for lvl in levels:
-        os.makedirs(f"data/alphazero/{lvl}", exist_ok=True)
-
-    while iteration < end_iteration and level_idx < len(levels):
-        current_level = levels[level_idx]
-        stage_levels = get_stage_levels(level_idx)
-        level_max_steps, level_sims = get_level_settings(current_level, args.max_steps, args.num_sims)
-
-        # Cycle through all levels in this stage for map diversity
-        play_level = stage_levels[iters_on_current % len(stage_levels)]
-        levels_seen.add(play_level)
-
-        if iters_on_current == 0:
-            recent_win_rates.clear()
-            print(f"\n{'#'*60}")
-            print(f"  CURRICULUM: Level {current_level} "
-                  f"(stage {level_idx + 1}/{len(levels)}, {len(stage_levels)} maps, "
-                  f"max_steps={level_max_steps}, sims={level_sims})")
-            print(f"{'#'*60}")
-
-        print(f"\n{'='*60}")
-        print(f"Iteration {iteration} (playing L{play_level}, attempt {iters_on_current + 1}/{args.iters_per_level})")
-        print(f"{'='*60}")
-
-        # --- Self-play on rotated level ---
-        t0 = time.time()
-        sp_model_path = best_model_onnx if os.path.exists(best_model_onnx) else None
-
-        examples, sp_stats = run_self_play(
-            level=play_level,
-            num_games=args.games_per_iter,
-            num_simulations=level_sims,
+    config = TrainingConfig(
+        level=level,
+        max_episode_steps=args.max_steps,
+        action_repeat=args.action_repeat,
+        model_dir=Path("models/alphazero"),
+        resume_from=str(args.resume) if args.resume > 0 else None,
+        curriculum=curriculum,
+        alphazero=AlphaZeroHparams(
+            iterations=args.iterations,
+            games_per_iteration=args.games_per_iter,
+            simulations_per_move=args.num_sims,
             c_puct=args.c_puct,
-            action_repeat=args.action_repeat,
-            max_steps=level_max_steps,
-            model_path=sp_model_path,
-        )
+            replay_buffer_shards=args.buffer_size,
+            network_train_epochs=args.epochs,
+            network_batch_size=args.batch_size,
+            network_lr=args.lr,
+            eval_games=args.eval_games,
+            iters_per_level=args.iters_per_level,
+            win_threshold=args.win_threshold,
+            generate_curriculum=args.generate_curriculum,
+            fresh=args.fresh,
+        ),
+    )
 
-        data_dir = f"data/alphazero/{play_level}"
-        iter_data_path = os.path.join(data_dir, f"iteration_{iteration}.npz")
-        save_examples(examples, iter_data_path)
-        print(f"  Self-play: {len(examples)} examples in {time.time() - t0:.1f}s")
-
-        # --- Collect replay buffer from all seen levels ---
-        all_examples = []
-        start_iter = max(0, iteration - args.buffer_size + 1)
-        for lvl in levels_seen:
-            lvl_data_dir = f"data/alphazero/{lvl}"
-            for i in range(start_iter, iteration + 1):
-                path = os.path.join(lvl_data_dir, f"iteration_{i}.npz")
-                if os.path.exists(path):
-                    all_examples.extend(load_examples(path))
-        print(f"  Replay buffer: {len(all_examples)} examples ({len(levels_seen)} levels, iters {start_iter}-{iteration})")
-
-        # --- Train ---
-        t0 = time.time()
-        metrics = train_network(model, all_examples, optimizer, args.epochs, args.batch_size)
-        print(f"  Loss: policy={metrics['policy_loss']:.4f} value={metrics['value_loss']:.4f} ({time.time() - t0:.1f}s)")
-
-        # --- Export ---
-        iter_onnx = os.path.join(save_dir, f"model_iter_{iteration}.onnx")
-        iter_pt = os.path.join(save_dir, f"model_iter_{iteration}.pt")
-        torch.save(model.state_dict(), iter_pt)
-        export_to_onnx(model, iter_onnx)
-
-        # --- Evaluate on the stage's hardest level (not the one we just played) ---
-        eval_level = stage_levels[-1]
-        new_results = evaluate_model(
-            eval_level, iter_onnx, args.eval_games,
-            num_sims=level_sims // 2,
-            action_repeat=args.action_repeat,
-            max_steps=level_max_steps,
-        )
-        win_rate = new_results["win_rate"]
-        recent_win_rates.append(win_rate)
-        smoothed = sum(recent_win_rates[-WIN_RATE_WINDOW:]) / min(len(recent_win_rates), WIN_RATE_WINDOW)
-        print(f"  Eval (L{eval_level}): reward={new_results['mean_reward']:.1f}, "
-              f"pickups={new_results['mean_pickups']:.1f}, "
-              f"wins={new_results['wins']}/{new_results['total']} ({win_rate:.0%}), "
-              f"smoothed={smoothed:.0%}")
-
-        # --- Model promotion ---
-        torch.save(model.state_dict(), best_model_pt)
-        export_to_onnx(model, best_model_onnx)
-
-        iters_on_current += 1
-        iteration += 1
-
-        # --- Auto-advancement (smoothed over last N evals) ---
-        if len(recent_win_rates) >= WIN_RATE_WINDOW and smoothed >= args.win_threshold:
-            print(f"  >>> Advanced! Smoothed win rate {smoothed:.0%} >= {args.win_threshold:.0%} "
-                  f"(last {WIN_RATE_WINDOW}: {', '.join(f'{r:.0%}' for r in recent_win_rates[-WIN_RATE_WINDOW:])})")
-            level_idx += 1
-            iters_on_current = 0
-        elif iters_on_current >= args.iters_per_level:
-            print(f"  >>> Advancing (hit max {args.iters_per_level} iters, smoothed={smoothed:.0%})")
-            level_idx += 1
-            iters_on_current = 0
-
-    if level_idx >= len(levels):
-        print(f"\n{'='*60}")
-        print(f"Curriculum complete! Passed all {len(levels)} levels.")
-    else:
-        print(f"\n{'='*60}")
-        print(f"Training budget exhausted at level {levels[level_idx]} ({level_idx + 1}/{len(levels)})")
-    print(f"Best model: {best_model_onnx}")
+    trainer = AlphaZeroTrainer()
+    trainer.fit(config)
 
 
 if __name__ == "__main__":

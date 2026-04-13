@@ -13,7 +13,6 @@ import argparse
 import json
 import math
 import random
-from collections import deque
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -64,7 +63,7 @@ def serialize_map(m: GeneratedMap) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Validation engine (replicates pathfinder.rs BFS grid)
+# Geometry helper (used by corridor-width measurement, NOT pathfinding)
 # ---------------------------------------------------------------------------
 def point_to_segment_dist_sq(px, py, x1, y1, x2, y2):
     dx = x2 - x1
@@ -83,112 +82,35 @@ def point_to_segment_dist_sq(px, py, x1, y1, x2, y2):
     return dx2 * dx2 + dy2 * dy2
 
 
-NEIGHBORS = [
-    (-1, 0, 10), (1, 0, 10), (0, -1, 10), (0, 1, 10),
-    (-1, -1, 14), (-1, 1, 14), (1, -1, 14), (1, 1, 14),
-]
+# ---------------------------------------------------------------------------
+# Validation engine — delegates to Rust RustPathfinder via PyO3
+# ---------------------------------------------------------------------------
+import spaceace_rl
 
 
 class MapValidator:
-    """Validates that all pickups are reachable from spawn using BFS on an
-    inflated grid, matching the Rust pathfinder logic."""
+    """Validates that all pickups are reachable from spawn using the Rust
+    pathfinder (BFS on an inflated grid)."""
 
     def __init__(self, m: GeneratedMap):
         self.m = m
-        # Compute bounds
-        all_x = [v[0] for v in m.vertices]
-        all_y = [v[1] for v in m.vertices]
-        # Include spawn offset position
-        spawn_v = m.vertices[m.start_index]
-        spawn_y = spawn_v[1] + SPAWN_Y_OFFSET
-        all_y.append(spawn_y)
-
-        self.min_x = min(all_x) - 50
-        self.min_y = min(all_y) - 50
-        max_x = max(all_x) + 50
-        max_y = max(all_y) + 50
-
-        self.cols = int((max_x - self.min_x) / CELL_SIZE) + 1
-        self.rows = int((max_y - self.min_y) / CELL_SIZE) + 1
-
-        # Build wall segments
-        self.wall_segs = []
-        for va, vb in m.lines:
-            x1, y1 = m.vertices[va]
-            x2, y2 = m.vertices[vb]
-            self.wall_segs.append((x1, y1, x2, y2))
-
-        self.blocked = self._build_blocked_grid()
-
-    def _build_blocked_grid(self):
-        blocked = [False] * (self.rows * self.cols)
-        inf_sq = INFLATION_RADIUS * INFLATION_RADIUS
-        for r in range(self.rows):
-            for c in range(self.cols):
-                wx = self.min_x + c * CELL_SIZE + CELL_SIZE * 0.5
-                wy = self.min_y + r * CELL_SIZE + CELL_SIZE * 0.5
-                for x1, y1, x2, y2 in self.wall_segs:
-                    if point_to_segment_dist_sq(wx, wy, x1, y1, x2, y2) < inf_sq:
-                        blocked[r * self.cols + c] = True
-                        break
-        return blocked
-
-    def _world_to_grid(self, wx, wy):
-        c = int((wx - self.min_x) / CELL_SIZE)
-        r = int((wy - self.min_y) / CELL_SIZE)
-        c = max(0, min(self.cols - 1, c))
-        r = max(0, min(self.rows - 1, r))
-        return r, c
-
-    def _bfs(self, start_r, start_c):
-        """BFS returning distance grid (or -1 for unreached)."""
-        dist = [-1] * (self.rows * self.cols)
-        if self.blocked[start_r * self.cols + start_c]:
-            return dist
-        dist[start_r * self.cols + start_c] = 0
-        q = deque()
-        q.append((start_r, start_c))
-        while q:
-            r, c = q.popleft()
-            d = dist[r * self.cols + c]
-            for dr, dc, cost in NEIGHBORS:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < self.rows and 0 <= nc < self.cols:
-                    idx = nr * self.cols + nc
-                    if not self.blocked[idx] and dist[idx] < 0:
-                        dist[idx] = d + cost
-                        q.append((nr, nc))
-        return dist
+        map_json = json.dumps(serialize_map(m))
+        self._pf = spaceace_rl.PyPathfinder.from_map_json(map_json)
 
     def validate(self):
-        """Returns True if all pickups are reachable from spawn."""
+        """Returns per-pickup world distances if all reachable, else False."""
         m = self.m
         spawn_v = m.vertices[m.start_index]
         spawn_x = spawn_v[0]
         spawn_y = spawn_v[1] + SPAWN_Y_OFFSET
-
-        sr, sc = self._world_to_grid(spawn_x, spawn_y)
-        if self.blocked[sr * self.cols + sc]:
+        all_reachable, dists = self._pf.validate_reachability(spawn_x, spawn_y)
+        if not all_reachable:
             return False
+        return dists
 
-        dist = self._bfs(sr, sc)
-
-        for pi in m.pickups:
-            px, py = m.vertices[pi]
-            pr, pc = self._world_to_grid(px, py)
-            if dist[pr * self.cols + pc] < 0:
-                return False
-        return dist
-
-    def compute_distances(self, dist):
-        """Compute BFS distances from spawn to each pickup."""
-        m = self.m
-        distances = []
-        for pi in m.pickups:
-            px, py = m.vertices[pi]
-            pr, pc = self._world_to_grid(px, py)
-            distances.append(dist[pr * self.cols + pc])
-        return distances
+    def compute_distances(self, dists):
+        """Return per-pickup distances (already in world units from Rust)."""
+        return list(dists)
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +173,7 @@ def compute_difficulty(m: GeneratedMap, bfs_distances: list) -> float:
     for i, pi in enumerate(m.pickups):
         px, py = m.vertices[pi]
         eucl = math.sqrt((px - spawn_x) ** 2 + (py - spawn_y) ** 2)
-        bfs_d = bfs_distances[i] * CELL_SIZE if bfs_distances[i] > 0 else eucl
+        bfs_d = bfs_distances[i] if bfs_distances[i] > 0 else eucl
         total_bfs += bfs_d
         total_eucl += max(eucl, 1.0)
     # BFS on a grid inflates distances by ~sqrt(2)/2 even for straight-line paths,

@@ -11,6 +11,7 @@ pub mod nn_evaluator;
 pub mod alphazero_mcts;
 
 use real_game::{RealSpaceAceGame, GameSnapshot};
+use real_map_parser::parse_map_json;
 use pathfinder::{PathfinderGrid, MomentumPathfinder, PathfinderKind};
 use mcts::{mcts_search, mcts_search_with_stats, get_heuristic_breakdown, MCTSParams};
 use nn_evaluator::{NNEvaluator, build_alphazero_obs};
@@ -439,11 +440,36 @@ impl PyPathfinder {
         Ok(PyPathfinder { kind })
     }
 
+    /// Construct a pathfinder from a flat JSON array (the format produced by
+    /// generate_maps.py's serialize_map). Always uses the grid backend.
+    #[staticmethod]
+    fn from_map_json(map_json: &str) -> PyResult<Self> {
+        let map_data = parse_map_json(map_json)
+            .ok_or_else(|| pyo3::exceptions::PyValueError::new_err(
+                "Failed to parse map JSON"
+            ))?;
+        let mut game = RealSpaceAceGame::new();
+        game.load_from_map_data(map_data);
+        let pathfinder = PathfinderGrid::build(&game);
+        Ok(PyPathfinder { kind: PathfinderKind::Spatial(pathfinder) })
+    }
+
     /// Returns the active backend name.
     fn backend(&self) -> &'static str {
         match &self.kind {
             PathfinderKind::Spatial(_) => "grid",
             PathfinderKind::Momentum(_) => "momentum",
+        }
+    }
+
+    /// Returns (all_reachable, per_pickup_path_distances).
+    /// Unreachable pickups get f64::INFINITY. Grid backend only.
+    fn validate_reachability(&self, spawn_x: f32, spawn_y: f32) -> PyResult<(bool, Vec<f64>)> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => Ok(pf.validate_reachability(spawn_x, spawn_y)),
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "validate_reachability is only available on the grid backend",
+            )),
         }
     }
 

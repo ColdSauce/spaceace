@@ -179,6 +179,13 @@ fn parse_spaceace_data(data: &[f64]) -> Option<SpaceAceMapData> {
     })
 }
 
+/// Parse a flat JSON array (e.g. `[numVerts, x, y, …]`) into SpaceAceMapData.
+/// This is the format produced by `serialize_map` in generate_maps.py.
+pub fn parse_map_json(json_str: &str) -> Option<SpaceAceMapData> {
+    let arr: Vec<f64> = serde_json::from_str(json_str).ok()?;
+    parse_spaceace_data(&arr)
+}
+
 pub fn parse_real_map_data(level: usize) -> Option<SpaceAceMapData> {
     
     // Load all level data from JSON file

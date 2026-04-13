@@ -61,6 +61,26 @@ impl RealSpaceAceGame {
         }
     }
 
+    pub fn load_from_map_data(&mut self, map_data: SpaceAceMapData) {
+        self.collision_system.clear();
+        for &(i1, i2) in &map_data.lines {
+            let p1 = map_data.vertices[i1];
+            let p2 = map_data.vertices[i2];
+            self.collision_system.add_line(LineSegment {
+                x1: p1.0, y1: p1.1, x2: p2.0, y2: p2.1,
+            });
+        }
+        self.pickups.clear();
+        for &pickup_index in &map_data.pickups {
+            let pickup_vertex = map_data.vertices[pickup_index];
+            self.pickups.push(RealPickup {
+                x: pickup_vertex.0, y: pickup_vertex.1, collected: false,
+            });
+        }
+        self.map_data = Some(map_data);
+        self.reset();
+    }
+
     pub fn load_level(&mut self, level: usize) -> Result<(), String> {
         self.current_level = level;
         

@@ -19,6 +19,12 @@ from spaceace.training.sb3_trainer import Sb3Trainer  # noqa: E402
 TRAINER_REGISTRY["sb3"] = Sb3Trainer
 TRAINER_REGISTRY["ppo"] = Sb3Trainer
 
+from spaceace.agents.alphazero.trainer import AlphaZeroTrainer  # noqa: E402
+from spaceace.agents.hrl.trainer import HrlTrainer  # noqa: E402
+
+TRAINER_REGISTRY["alphazero"] = AlphaZeroTrainer
+TRAINER_REGISTRY["hrl"] = HrlTrainer
+
 __all__ = [
     "Trainer",
     "TrainingConfig",
@@ -27,4 +33,6 @@ __all__ = [
     "make_vec_env",
     "make_single_env",
     "Sb3Trainer",
+    "AlphaZeroTrainer",
+    "HrlTrainer",
 ]
