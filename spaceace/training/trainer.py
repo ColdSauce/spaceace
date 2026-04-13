@@ -1,0 +1,57 @@
+"""Trainer ABC + TrainingConfig. Agent-specific trainers subclass this."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class LevelStage:
+    """One stage in a curriculum: a set of levels the agent must master."""
+
+    levels: list[int]
+    max_episode_steps: int | None = None
+    advance_win_rate: float = 0.7
+    min_steps: int = 200_000
+
+
+@dataclass
+class TrainingConfig:
+    """Settings a Trainer consumes. Strategy keys resolve against STRATEGY_REGISTRY."""
+
+    level: int = 0
+    total_steps: int = 500_000
+    n_envs: int = 1
+    learning_rate: float = 3e-4
+    max_episode_steps: int = 3000
+    action_repeat: int = 5
+    seed: int = 42
+
+    obs: str = "path_augmented"
+    reward: str = "dense_shaped"
+    actions: str = "discrete6"
+
+    model_dir: Path = field(default_factory=lambda: Path("./models"))
+    tensorboard_dir: Path = field(default_factory=lambda: Path("./tensorboard_logs"))
+    eval_freq: int = 25_000
+    eval_episodes: int = 10
+    resume_from: str | None = None
+
+    curriculum: list[LevelStage] | None = None
+    calibration_cache_path: Path | None = None
+
+    @property
+    def save_dir(self) -> Path:
+        if self.curriculum is not None:
+            return self.model_dir / "curriculum"
+        return self.model_dir / str(self.level)
+
+
+class Trainer(ABC):
+    """A training run. Subclasses wire a specific RL algorithm to the strategy layer."""
+
+    @abstractmethod
+    def fit(self, config: TrainingConfig) -> Path:
+        """Train the agent and return the path of the final saved model."""

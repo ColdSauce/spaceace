@@ -1,0 +1,8 @@
+target/
+__pycache__/
+*.pyc
+logs/
+models/
+tensorboard_logs/
+*.egg-info/
+.venv/

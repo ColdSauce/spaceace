@@ -1,0 +1,19 @@
+[package]
+name = "spaceace-rl"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "spaceace_rl"
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+pyo3 = { version = "0.25" }
+ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }
+ndarray = "0.16"

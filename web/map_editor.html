@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceAce Map Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        #container {
+            display: flex;
+            height: 100vh;
+        }
+        
+        #sidebar {
+            width: 300px;
+            background-color: #2a2a2a;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.5);
+        }
+        
+        #canvas-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #canvas {
+            background-color: #000;
+            cursor: crosshair;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 1px solid #444;
+        }
+        
+        button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button.active {
+            background-color: #2196F3;
+        }
+        
+        button.danger {
+            background-color: #f44336;
+        }
+        
+        button.danger:hover {
+            background-color: #da190b;
+        }
+        
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            background-color: #3a3a3a;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+        
+        h3 {
+            margin-top: 20px;
+            margin-bottom: 10px;
+            color: #4CAF50;
+        }
+        
+        .info {
+            font-size: 12px;
+            color: #aaa;
+            margin: 5px 0;
+        }
+        
+        #stats {
+            background-color: #3a3a3a;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        
+        .tool-section {
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+        
+        #zoom-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(42, 42, 42, 0.9);
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        #export-json {
+            background-color: #3a3a3a;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .coord-display {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(42, 42, 42, 0.9);
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="sidebar">
+            <h2>SpaceAce Map Editor</h2>
+            
+            <div class="tool-section">
+                <h3>Level</h3>
+                <select id="level-select">
+                    <option value="new">New Level</option>
+                    <option value="0">Level 0 (Training)</option>
+                    <option value="1">Level 1</option>
+                    <option value="2">Level 2</option>
+                    <option value="3">Level 3</option>
+                    <option value="4">Level 4</option>
+                    <option value="5">Level 5</option>
+                    <option value="6">Level 6</option>
+                    <option value="7">Level 7</option>
+                    <option value="8">Level 8</option>
+                    <option value="9">Level 9</option>
+                    <option value="10">Level 10</option>
+                </select>
+                <input type="number" id="custom-level-number" placeholder="Custom level #" min="0" max="999" style="display: none; margin-top: 10px;">
+            </div>
+            
+            <div class="tool-section">
+                <h3>Tools</h3>
+                <button id="tool-vertex" class="active">Add Vertex</button>
+                <button id="tool-line">Add Line</button>
+                <button id="tool-pickup">Place Pickup</button>
+                <button id="tool-spawn">Set Spawn</button>
+                <button id="tool-move">Move/Select</button>
+                <button id="tool-delete" class="danger">Delete</button>
+            </div>
+            
+            <div class="tool-section">
+                <h3>Map Properties</h3>
+                <label>Width: <input type="number" id="map-width" value="800" min="100" max="5000"></label>
+                <label>Height: <input type="number" id="map-height" value="600" min="100" max="5000"></label>
+                <button id="resize-map">Resize Map</button>
+            </div>
+            
+            
+            <div class="tool-section">
+                <h3>Actions</h3>
+                <button id="clear-map" class="danger">Clear Map</button>
+                <button id="export-btn">Export Level Data</button>
+                <button id="import-btn">Import Level Data</button>
+                <input type="file" id="import-file" accept=".json" style="display: none;">
+            </div>
+            
+            <div id="stats">
+                <h3>Statistics</h3>
+                <div class="info">Vertices: <span id="vertex-count">0</span></div>
+                <div class="info">Lines: <span id="line-count">0</span></div>
+                <div class="info">Pickups: <span id="pickup-count">0</span></div>
+                <div class="info">Spawn: <span id="spawn-info">Not set</span></div>
+            </div>
+            
+            <div id="export-json"></div>
+        </div>
+        
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+            <div class="coord-display">
+                <div>X: <span id="mouse-x">0</span></div>
+                <div>Y: <span id="mouse-y">0</span></div>
+            </div>
+            <div id="zoom-controls">
+                <button id="zoom-in">Zoom In</button>
+                <button id="zoom-out">Zoom Out</button>
+                <button id="zoom-fit">Fit to View</button>
+                <button id="zoom-reset">Reset View</button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="map_editor.js"></script>
+</body>
+</html>
