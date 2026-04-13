@@ -416,55 +416,101 @@ impl PyMCTSEngine {
 
 #[pyclass]
 struct PyPathfinder {
-    pathfinder: PathfinderGrid,
+    kind: PathfinderKind,
 }
 
 #[pymethods]
 impl PyPathfinder {
     #[new]
-    fn new(level: usize) -> PyResult<Self> {
+    #[pyo3(signature = (level, backend = "grid"))]
+    fn new(level: usize, backend: &str) -> PyResult<Self> {
         let mut game = RealSpaceAceGame::new();
         game.load_level(level)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
                 format!("Failed to load level {}: {:?}", level, e)
             ))?;
-        let pathfinder = PathfinderGrid::build(&game);
-        Ok(PyPathfinder { pathfinder })
+        let kind = match backend {
+            "grid" => PathfinderKind::Spatial(PathfinderGrid::build(&game)),
+            "momentum" => PathfinderKind::Momentum(MomentumPathfinder::build(&game)),
+            other => return Err(pyo3::exceptions::PyValueError::new_err(
+                format!("unknown backend: {other}")
+            )),
+        };
+        Ok(PyPathfinder { kind })
     }
 
-    /// Returns (path_distance, dir_x, dir_y) from pathfinder
-    fn get_nearest_pickup_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> (f64, f64, f64) {
-        self.pathfinder.get_nearest_pickup_info(ship_x, ship_y, &collected)
+    /// Returns the active backend name.
+    fn backend(&self) -> &'static str {
+        match &self.kind {
+            PathfinderKind::Spatial(_) => "grid",
+            PathfinderKind::Momentum(_) => "momentum",
+        }
+    }
+
+    /// Returns (path_distance, dir_x, dir_y) from pathfinder.
+    /// Velocity defaults to zero; grid ignores it, momentum uses it.
+    #[pyo3(signature = (ship_x, ship_y, collected, ship_vx=0.0, ship_vy=0.0))]
+    fn get_nearest_pickup_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>, ship_vx: f32, ship_vy: f32) -> (f64, f64, f64) {
+        self.kind.get_nearest_pickup_info(ship_x, ship_y, ship_vx, ship_vy, &collected)
     }
 
     /// Returns (target_idx, target_x, target_y, path_dist, euclidean_dist, dir_x, dir_y)
-    fn get_debug_target_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> (i32, f32, f32, f64, f64, f64, f64) {
-        self.pathfinder.get_debug_target_info(ship_x, ship_y, &collected)
+    #[pyo3(signature = (ship_x, ship_y, collected, ship_vx=0.0, ship_vy=0.0))]
+    fn get_debug_target_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>, ship_vx: f32, ship_vy: f32) -> (i32, f32, f32, f64, f64, f64, f64) {
+        self.kind.get_debug_target_info(ship_x, ship_y, ship_vx, ship_vy, &collected)
     }
 
     /// Returns (path_distance, dir_x, dir_y) toward a specific pickup index.
-    fn get_distance_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> (f64, f64, f64) {
-        self.pathfinder.get_distance_to_specific_pickup(ship_x, ship_y, pickup_idx)
+    /// Only available on the grid backend.
+    fn get_distance_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> PyResult<(f64, f64, f64)> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => Ok(pf.get_distance_to_specific_pickup(ship_x, ship_y, pickup_idx)),
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "get_distance_to_specific_pickup is only available on the grid backend",
+            )),
+        }
     }
 
     /// Returns optimal TSP ordering of uncollected pickups using Held-Karp exact solver.
-    fn get_tsp_order(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> Vec<usize> {
-        self.pathfinder.held_karp_tsp(ship_x, ship_y, &collected)
+    /// Only available on the grid backend.
+    fn get_tsp_order(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> PyResult<Vec<usize>> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => Ok(pf.held_karp_tsp(ship_x, ship_y, &collected)),
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "get_tsp_order is only available on the grid backend",
+            )),
+        }
     }
 
     /// Returns the full grid path from ship to a specific pickup as list of (x, y) tuples.
-    fn get_path_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> Vec<(f32, f32)> {
-        self.pathfinder.get_path_to_specific_pickup(ship_x, ship_y, pickup_idx)
+    /// Only available on the grid backend.
+    fn get_path_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> PyResult<Vec<(f32, f32)>> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => Ok(pf.get_path_to_specific_pickup(ship_x, ship_y, pickup_idx)),
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "get_path_to_specific_pickup is only available on the grid backend",
+            )),
+        }
     }
 
     /// Returns pickup coordinates as list of (x, y) tuples.
-    fn get_pickup_coords(&self) -> Vec<(f32, f32)> {
-        self.pathfinder.get_pickup_coords().to_vec()
+    /// Only available on the grid backend.
+    fn get_pickup_coords(&self) -> PyResult<Vec<(f32, f32)>> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => Ok(pf.get_pickup_coords().to_vec()),
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "get_pickup_coords is only available on the grid backend",
+            )),
+        }
     }
 
     fn get_info(&self) -> String {
-        format!("{}x{} grid, {} pickups",
-                self.pathfinder.rows(), self.pathfinder.cols(), self.pathfinder.total_pickups)
+        let backend = match &self.kind {
+            PathfinderKind::Spatial(_) => "grid",
+            PathfinderKind::Momentum(_) => "momentum",
+        };
+        format!("{}x{} {} pathfinder, {} pickups",
+                self.kind.rows(), self.kind.cols(), backend, self.kind.total_pickups())
     }
 }
 

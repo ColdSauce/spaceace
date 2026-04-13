@@ -13,11 +13,11 @@ class RustPathfinder:
     """
 
     def __init__(self, level: int, backend: str = "grid"):
-        # backend currently unused at the PyO3 boundary (PyPathfinder is grid-only).
-        # Phase 6 unifies the surface and will wire this selector through.
+        if backend not in ("grid", "momentum"):
+            raise ValueError(f"unknown backend {backend!r}")
         self.level = level
         self.backend = backend
-        self._impl = spaceace_rl.PyPathfinder(level)
+        self._impl = spaceace_rl.PyPathfinder(level, backend)
 
     def nearest_pickup_info(
         self, ship_x: float, ship_y: float, collected: list[bool]

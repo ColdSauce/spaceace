@@ -32,6 +32,15 @@ run "mcts grid level 0" \
 run "mcts momentum level 0" \
     uv run python run.py --agent mcts --level 0 --headless --episodes 1 --num-simulations 100 --max-steps 500 --momentum-pathfinder
 
+run "pathfinder momentum backend" \
+    uv run python -c "
+from spaceace.strategies import RustPathfinder
+pf = RustPathfinder(0, backend='momentum')
+result = pf.nearest_pickup_info(500.0, 500.0, [False]*10)
+assert len(result) == 3, f'expected 3-tuple, got {result}'
+print('momentum pathfinder OK:', result)
+"
+
 # PPO checkpoints on disk are pre-broken: saved VecNormalize has obs shape
 # that doesn't match current training_env. Not caused by the refactor.
 # Uncomment once a fresh checkpoint is trained under the new strategies/ layout.

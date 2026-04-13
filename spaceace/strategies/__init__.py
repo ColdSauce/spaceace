@@ -18,7 +18,11 @@ from spaceace.strategies.pathfinder import RustPathfinder
 from spaceace.strategies.rewards import DenseShapedReward, SparseReward
 
 STRATEGY_REGISTRY: dict[str, dict[str, type]] = {
-    "pathfinder": {"rust": RustPathfinder},
+    "pathfinder": {
+        "rust": RustPathfinder,
+        "rust_grid": lambda level: RustPathfinder(level, backend="grid"),
+        "rust_momentum": lambda level: RustPathfinder(level, backend="momentum"),
+    },
     "observation": {"raw": RawObs19, "path_augmented": PathAugmentedObs23},
     "reward": {"sparse": SparseReward, "dense_shaped": DenseShapedReward},
     "actions": {"discrete6": DiscreteAction6},
