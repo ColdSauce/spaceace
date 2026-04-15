@@ -1,299 +1,1202 @@
 {
   "3000": {
-    "max_steps": 300,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 39,
     "mcts_avg_steps": 39.0
   },
+  "5000": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 219,
+    "mcts_avg_steps": 222.66666666666666
+  },
+  "5001": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 194,
+    "mcts_avg_steps": 196.66666666666666
+  },
+  "5002": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 310,
+    "mcts_avg_steps": 349.6666666666667
+  },
   "3001": {
-    "max_steps": 300,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 46,
-    "mcts_avg_steps": 46.0
+    "mcts_fastest": 42,
+    "mcts_avg_steps": 42.0
   },
-  "3002": {
-    "max_steps": 300,
+  "5003": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 49,
-    "mcts_avg_steps": 49.333333333333336
+    "mcts_fastest": 162,
+    "mcts_avg_steps": 164.0
   },
-  "3003": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 55,
-    "mcts_avg_steps": 56.333333333333336
-  },
-  "3004": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 72,
-    "mcts_avg_steps": 72.0
-  },
-  "3005": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 58,
-    "mcts_avg_steps": 59.333333333333336
-  },
-  "3006": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 69,
-    "mcts_avg_steps": 69.0
-  },
-  "3007": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 72,
-    "mcts_avg_steps": 72.0
-  },
-  "3008": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 61,
-    "mcts_avg_steps": 62.333333333333336
-  },
-  "3009": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 72,
-    "mcts_avg_steps": 75.0
-  },
-  "3010": {
-    "max_steps": 423,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 141,
-    "mcts_avg_steps": 144.66666666666666
-  },
-  "3011": {
-    "max_steps": 414,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 138,
-    "mcts_avg_steps": 141.0
-  },
-  "3012": {
-    "max_steps": 522,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 174,
-    "mcts_avg_steps": 179.33333333333334
-  },
-  "3013": {
-    "max_steps": 300,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 70,
-    "mcts_avg_steps": 74.33333333333333
-  },
-  "3014": {
-    "max_steps": 381,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 127,
-    "mcts_avg_steps": 141.33333333333334
-  },
-  "3015": {
-    "max_steps": 600,
+  "5004": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 200,
-    "mcts_avg_steps": 208.0
+    "mcts_avg_steps": 212.33333333333334
+  },
+  "5005": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 226,
+    "mcts_avg_steps": 245.33333333333334
+  },
+  "3002": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 44,
+    "mcts_avg_steps": 44.0
+  },
+  "5006": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 268,
+    "mcts_avg_steps": 273.6666666666667
+  },
+  "5007": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 191,
+    "mcts_avg_steps": 193.66666666666666
+  },
+  "5008": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 343,
+    "mcts_avg_steps": 359.6666666666667
+  },
+  "3003": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 47,
+    "mcts_avg_steps": 47.0
+  },
+  "5009": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 198,
+    "mcts_avg_steps": 200.0
+  },
+  "5010": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 226,
+    "mcts_avg_steps": 235.66666666666666
+  },
+  "5011": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 292,
+    "mcts_avg_steps": 299.3333333333333
+  },
+  "3004": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 50,
+    "mcts_avg_steps": 54.0
+  },
+  "5012": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 211,
+    "mcts_avg_steps": 221.33333333333334
+  },
+  "5013": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 182,
+    "mcts_avg_steps": 184.0
+  },
+  "5014": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 233,
+    "mcts_avg_steps": 241.66666666666666
+  },
+  "3005": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 55,
+    "mcts_avg_steps": 55.333333333333336
+  },
+  "5015": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 198,
+    "mcts_avg_steps": 205.66666666666666
+  },
+  "5016": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 228,
+    "mcts_avg_steps": 259.3333333333333
+  },
+  "5017": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 229,
+    "mcts_avg_steps": 232.33333333333334
+  },
+  "3006": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 52,
+    "mcts_avg_steps": 52.0
+  },
+  "5018": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 223,
+    "mcts_avg_steps": 228.0
+  },
+  "5019": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 255,
+    "mcts_avg_steps": 274.6666666666667
+  },
+  "5020": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 256,
+    "mcts_avg_steps": 259.6666666666667
+  },
+  "3007": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 57,
+    "mcts_avg_steps": 57.0
+  },
+  "5021": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 246,
+    "mcts_avg_steps": 250.33333333333334
+  },
+  "5022": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 265,
+    "mcts_avg_steps": 282.3333333333333
+  },
+  "5023": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 263,
+    "mcts_avg_steps": 281.3333333333333
+  },
+  "3008": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 61,
+    "mcts_avg_steps": 61.666666666666664
+  },
+  "5024": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 162,
+    "mcts_avg_steps": 170.33333333333334
+  },
+  "5025": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 254,
+    "mcts_avg_steps": 266.0
+  },
+  "5026": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 283,
+    "mcts_avg_steps": 286.3333333333333
+  },
+  "3009": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 55,
+    "mcts_avg_steps": 55.0
+  },
+  "5027": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 74,
+    "mcts_avg_steps": 134.0
+  },
+  "5028": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 200,
+    "mcts_avg_steps": 215.66666666666666
+  },
+  "5029": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 227,
+    "mcts_avg_steps": 288.3333333333333
+  },
+  "3010": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 62,
+    "mcts_avg_steps": 62.0
+  },
+  "5030": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 204,
+    "mcts_avg_steps": 209.33333333333334
+  },
+  "5031": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 199,
+    "mcts_avg_steps": 205.33333333333334
+  },
+  "5032": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 209,
+    "mcts_avg_steps": 217.33333333333334
+  },
+  "3011": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 71,
+    "mcts_avg_steps": 72.66666666666667
+  },
+  "5033": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 166,
+    "mcts_avg_steps": 174.0
+  },
+  "5034": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 280,
+    "mcts_avg_steps": 286.0
+  },
+  "5035": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 282,
+    "mcts_avg_steps": 299.6666666666667
+  },
+  "3012": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 82,
+    "mcts_avg_steps": 85.0
+  },
+  "5036": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 145,
+    "mcts_avg_steps": 173.0
+  },
+  "5037": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 232,
+    "mcts_avg_steps": 245.0
+  },
+  "5038": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 228,
+    "mcts_avg_steps": 249.0
+  },
+  "3013": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 91,
+    "mcts_avg_steps": 91.0
+  },
+  "5039": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 170,
+    "mcts_avg_steps": 173.0
+  },
+  "5040": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 302,
+    "mcts_avg_steps": 307.0
+  },
+  "5041": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 304,
+    "mcts_avg_steps": 311.0
+  },
+  "3014": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 71,
+    "mcts_avg_steps": 71.66666666666667
+  },
+  "5042": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 85,
+    "mcts_avg_steps": 85.33333333333333
+  },
+  "5043": {
+    "max_steps": 3003,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 81,
+    "mcts_avg_steps": 84.0
+  },
+  "5044": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 154,
+    "mcts_avg_steps": 160.0
+  },
+  "3015": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 42,
+    "mcts_avg_steps": 44.0
+  },
+  "5045": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 145,
+    "mcts_avg_steps": 174.33333333333334
+  },
+  "5046": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 220,
+    "mcts_avg_steps": 247.33333333333334
+  },
+  "5047": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 271,
+    "mcts_avg_steps": 300.0
   },
   "3016": {
-    "max_steps": 750,
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 47,
+    "mcts_avg_steps": 47.666666666666664
+  },
+  "5048": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 117,
+    "mcts_avg_steps": 125.33333333333333
+  },
+  "5049": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 187,
+    "mcts_avg_steps": 197.66666666666666
+  },
+  "5050": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 228,
+    "mcts_avg_steps": 244.33333333333334
+  },
+  "3017": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 49,
+    "mcts_avg_steps": 50.0
+  },
+  "5051": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 147,
+    "mcts_avg_steps": 177.33333333333334
+  },
+  "5052": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 183,
+    "mcts_avg_steps": 186.0
+  },
+  "5053": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 269,
+    "mcts_avg_steps": 276.3333333333333
+  },
+  "3018": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 54,
+    "mcts_avg_steps": 54.666666666666664
+  },
+  "5054": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 195,
+    "mcts_avg_steps": 204.0
+  },
+  "5055": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 219,
+    "mcts_avg_steps": 247.0
+  },
+  "5056": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 356,
+    "mcts_avg_steps": 407.0
+  },
+  "3019": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 51,
+    "mcts_avg_steps": 53.0
+  },
+  "5057": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 153,
+    "mcts_avg_steps": 187.33333333333334
+  },
+  "5058": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 166,
+    "mcts_avg_steps": 184.66666666666666
+  },
+  "5059": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 172,
+    "mcts_avg_steps": 185.66666666666666
+  },
+  "3020": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 63,
+    "mcts_avg_steps": 63.333333333333336
+  },
+  "5060": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 139,
+    "mcts_avg_steps": 143.33333333333334
+  },
+  "5061": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 145,
+    "mcts_avg_steps": 149.33333333333334
+  },
+  "5062": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 294,
+    "mcts_avg_steps": 373.6666666666667
+  },
+  "3021": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 55,
+    "mcts_avg_steps": 59.0
+  },
+  "5063": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 114,
+    "mcts_avg_steps": 129.0
+  },
+  "5064": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 271,
+    "mcts_avg_steps": 277.0
+  },
+  "5065": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 327,
+    "mcts_avg_steps": 341.0
+  },
+  "3022": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 67,
+    "mcts_avg_steps": 69.66666666666667
+  },
+  "5066": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 140,
+    "mcts_avg_steps": 155.0
+  },
+  "5067": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 155,
+    "mcts_avg_steps": 155.66666666666666
+  },
+  "5068": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 176,
+    "mcts_avg_steps": 182.0
+  },
+  "3023": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 75,
+    "mcts_avg_steps": 75.0
+  },
+  "5069": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 234,
+    "mcts_avg_steps": 240.33333333333334
+  },
+  "5070": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 250,
-    "mcts_avg_steps": 271.6666666666667
+    "mcts_avg_steps": 250.66666666666666
   },
-  "3017": {
-    "max_steps": 300,
+  "5071": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 68,
-    "mcts_avg_steps": 69.33333333333333
+    "mcts_fastest": 357,
+    "mcts_avg_steps": 383.6666666666667
   },
-  "3018": {
-    "max_steps": 357,
+  "3024": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 85,
+    "mcts_avg_steps": 89.0
+  },
+  "5072": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 281,
+    "mcts_avg_steps": 286.0
+  },
+  "5073": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 332,
+    "mcts_avg_steps": 332.3333333333333
+  },
+  "5074": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 313,
+    "mcts_avg_steps": 318.6666666666667
+  },
+  "3025": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 104,
+    "mcts_avg_steps": 107.0
+  },
+  "5075": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 176,
+    "mcts_avg_steps": 198.66666666666666
+  },
+  "5076": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 170,
+    "mcts_avg_steps": 174.0
+  },
+  "5077": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3026": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 119,
+    "mcts_avg_steps": 123.66666666666667
+  },
+  "5078": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 156,
+    "mcts_avg_steps": 192.33333333333334
+  },
+  "5079": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 225,
+    "mcts_avg_steps": 251.66666666666666
+  },
+  "5080": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 410,
+    "mcts_avg_steps": 418.0
+  },
+  "3027": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 97,
+    "mcts_avg_steps": 102.33333333333333
+  },
+  "5081": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 105,
+    "mcts_avg_steps": 118.33333333333333
+  },
+  "5082": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 251,
+    "mcts_avg_steps": 258.3333333333333
+  },
+  "5083": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 339,
+    "mcts_avg_steps": 349.3333333333333
+  },
+  "3028": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 143,
+    "mcts_avg_steps": 149.66666666666666
+  },
+  "5084": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 214,
+    "mcts_avg_steps": 221.0
+  },
+  "5085": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 360,
+    "mcts_avg_steps": 446.3333333333333
+  },
+  "5086": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 468,
+    "mcts_avg_steps": 482.3333333333333
+  },
+  "3029": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 136,
+    "mcts_avg_steps": 146.66666666666666
+  },
+  "5087": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 417,
+    "mcts_avg_steps": 432.0
+  },
+  "5088": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 428,
+    "mcts_avg_steps": 455.6666666666667
+  },
+  "5089": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 389,
+    "mcts_avg_steps": 422.6666666666667
+  },
+  "3030": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 165,
+    "mcts_avg_steps": 171.33333333333334
+  },
+  "5090": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 170,
+    "mcts_avg_steps": 219.33333333333334
+  },
+  "5091": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 338,
+    "mcts_avg_steps": 362.6666666666667
+  },
+  "5092": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 355,
+    "mcts_avg_steps": 425.0
+  },
+  "3031": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 119,
     "mcts_avg_steps": 120.0
   },
-  "3019": {
-    "max_steps": 915,
+  "5093": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 305,
-    "mcts_avg_steps": 313.3333333333333
+    "mcts_fastest": 260,
+    "mcts_avg_steps": 275.6666666666667
   },
-  "3020": {
-    "max_steps": 1017,
+  "5094": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 339,
-    "mcts_avg_steps": 358.0
+    "mcts_fastest": 287,
+    "mcts_avg_steps": 323.6666666666667
   },
-  "3021": {
-    "max_steps": 1101,
+  "5095": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 367,
-    "mcts_avg_steps": 377.3333333333333
+    "mcts_fastest": 328,
+    "mcts_avg_steps": 391.0
   },
-  "3022": {
-    "max_steps": 2103,
+  "3032": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 701,
-    "mcts_avg_steps": 736.0
+    "mcts_fastest": 110,
+    "mcts_avg_steps": 112.0
   },
-  "3023": {
-    "max_steps": 351,
+  "5096": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 228,
+    "mcts_avg_steps": 230.0
+  },
+  "5097": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 233,
+    "mcts_avg_steps": 243.66666666666666
+  },
+  "5098": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 370,
+    "mcts_avg_steps": 388.6666666666667
+  },
+  "3033": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 117,
-    "mcts_avg_steps": 121.0
+    "mcts_avg_steps": 117.66666666666667
   },
-  "3024": {
-    "max_steps": 1524,
+  "5099": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 508,
-    "mcts_avg_steps": 509.6666666666667
+    "mcts_fastest": 229,
+    "mcts_avg_steps": 238.66666666666666
   },
-  "3025": {
-    "max_steps": 1371,
+  "5100": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 457,
-    "mcts_avg_steps": 472.6666666666667
+    "mcts_fastest": 362,
+    "mcts_avg_steps": 376.3333333333333
   },
-  "3026": {
-    "max_steps": 2034,
+  "5101": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 678,
-    "mcts_avg_steps": 705.3333333333334
-  },
-  "3027": {
-    "max_steps": 3510,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 1170,
-    "mcts_avg_steps": 1210.6666666666667
-  },
-  "3028": {
-    "max_steps": 1959,
-    "mcts_wins": 2,
-    "mcts_games": 3,
-    "mcts_fastest": 653,
-    "mcts_avg_steps": 571.3333333333334
-  },
-  "3029": {
-    "max_steps": 1554,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 518,
-    "mcts_avg_steps": 557.0
-  },
-  "3030": {
-    "max_steps": 5000,
-    "mcts_wins": 1,
-    "mcts_games": 3,
-    "mcts_fastest": 1846,
-    "mcts_avg_steps": 675.0
-  },
-  "3031": {
-    "max_steps": 5000,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 1679,
-    "mcts_avg_steps": 1718.6666666666667
-  },
-  "3032": {
-    "max_steps": 2259,
-    "mcts_wins": 2,
-    "mcts_games": 3,
-    "mcts_fastest": 753,
-    "mcts_avg_steps": 663.3333333333334
-  },
-  "3033": {
-    "max_steps": 2559,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 853,
-    "mcts_avg_steps": 948.3333333333334
+    "mcts_fastest": 358,
+    "mcts_avg_steps": 393.0
   },
   "3034": {
-    "max_steps": 2259,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 753,
-    "mcts_avg_steps": 772.3333333333334
+    "mcts_fastest": 121,
+    "mcts_avg_steps": 123.33333333333333
+  },
+  "5102": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 191,
+    "mcts_avg_steps": 201.66666666666666
+  },
+  "5103": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 177,
+    "mcts_avg_steps": 184.66666666666666
+  },
+  "5104": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 178,
+    "mcts_avg_steps": 231.66666666666666
   },
   "3035": {
-    "max_steps": 1443,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 481,
-    "mcts_avg_steps": 513.0
+    "mcts_fastest": 213,
+    "mcts_avg_steps": 218.66666666666666
+  },
+  "5105": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 756,
+    "mcts_avg_steps": 800.3333333333334
+  },
+  "5106": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 789,
+    "mcts_avg_steps": 828.0
+  },
+  "5107": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 731,
+    "mcts_avg_steps": 741.6666666666666
   },
   "3036": {
-    "max_steps": 1245,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 415,
-    "mcts_avg_steps": 434.3333333333333
+    "mcts_fastest": 704,
+    "mcts_avg_steps": 736.3333333333334
+  },
+  "5108": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 631,
+    "mcts_avg_steps": 652.6666666666666
+  },
+  "5109": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 650,
+    "mcts_avg_steps": 702.6666666666666
+  },
+  "5110": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 603,
+    "mcts_avg_steps": 644.6666666666666
   },
   "3037": {
-    "max_steps": 2838,
-    "mcts_wins": 2,
+    "max_steps": 4860,
+    "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 946,
-    "mcts_avg_steps": 897.0
+    "mcts_fastest": 1620,
+    "mcts_avg_steps": 1639.0
+  },
+  "5111": {
+    "max_steps": 4695,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1565,
+    "mcts_avg_steps": 1613.0
+  },
+  "5112": {
+    "max_steps": 4893,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1631,
+    "mcts_avg_steps": 1696.3333333333333
+  },
+  "5113": {
+    "max_steps": 4569,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1523,
+    "mcts_avg_steps": 1605.0
   },
   "3038": {
-    "max_steps": 1416,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 472,
-    "mcts_avg_steps": 492.0
+    "mcts_fastest": 778,
+    "mcts_avg_steps": 813.3333333333334
+  },
+  "5114": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 822,
+    "mcts_avg_steps": 848.0
+  },
+  "5115": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 778,
+    "mcts_avg_steps": 800.6666666666666
+  },
+  "5116": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 825,
+    "mcts_avg_steps": 882.6666666666666
   },
   "3039": {
-    "max_steps": 2841,
-    "mcts_wins": 1,
+    "max_steps": 3000,
+    "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 947,
-    "mcts_avg_steps": 3649.0
+    "mcts_fastest": 195,
+    "mcts_avg_steps": 207.0
+  },
+  "5117": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 649,
+    "mcts_avg_steps": 668.0
+  },
+  "5118": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 633,
+    "mcts_avg_steps": 669.0
+  },
+  "5119": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 645,
+    "mcts_avg_steps": 693.6666666666666
   },
   "3040": {
-    "max_steps": 1764,
+    "max_steps": 3243,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 588,
-    "mcts_avg_steps": 669.3333333333334
+    "mcts_fastest": 1081,
+    "mcts_avg_steps": 1134.3333333333333
+  },
+  "5120": {
+    "max_steps": 3117,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1039,
+    "mcts_avg_steps": 1070.6666666666667
+  },
+  "5121": {
+    "max_steps": 3126,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1042,
+    "mcts_avg_steps": 1066.0
+  },
+  "5122": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 998,
+    "mcts_avg_steps": 1026.6666666666667
   },
   "3041": {
-    "max_steps": 5000,
+    "max_steps": 3270,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2422,
-    "mcts_avg_steps": 2486.6666666666665
+    "mcts_fastest": 1090,
+    "mcts_avg_steps": 1127.3333333333333
+  },
+  "5123": {
+    "max_steps": 3288,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1096,
+    "mcts_avg_steps": 1128.0
+  },
+  "5124": {
+    "max_steps": 3348,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1116,
+    "mcts_avg_steps": 1136.3333333333333
+  },
+  "5125": {
+    "max_steps": 3111,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1037,
+    "mcts_avg_steps": 1073.6666666666667
   },
   "3042": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 531,
+    "mcts_avg_steps": 533.6666666666666
+  },
+  "5126": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5127": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5128": {
     "max_steps": 3000,
     "mcts_wins": 0,
     "mcts_games": 3,
@@ -304,154 +1207,2671 @@
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2153,
-    "mcts_avg_steps": 2210.0
+    "mcts_fastest": 1763,
+    "mcts_avg_steps": 1840.3333333333333
+  },
+  "5129": {
+    "max_steps": 4875,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1625,
+    "mcts_avg_steps: 1683.6666666666667
+  },
+  "5130": {
+    "max_steps": 4866,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1622,
+    "mcts_avg_steps": 1657.6666666666667
+  },
+  "5131": {
+    "max_steps": 4764,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1588,
+    "mcts_avg_steps": 1708.6666666666667
   },
   "3044": {
-    "max_steps": 5000,
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2330,
-    "mcts_avg_steps": 2503.6666666666665
+    "mcts_fastest": 750,
+    "mcts_avg_steps": 768.0
+  },
+  "5132": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 702,
+    "mcts_avg_steps": 714.3333333333334
+  },
+  "5133": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 689,
+    "mcts_avg_steps": 705.6666666666666
+  },
+  "5134": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 664,
+    "mcts_avg_steps": 707.0
   },
   "3045": {
-    "max_steps": 5000,
+    "max_steps": 4500,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 1984,
-    "mcts_avg_steps": 2013.6666666666667
+    "mcts_fastest": 1500,
+    "mcts_avg_steps": 1547.0
+  },
+  "5135": {
+    "max_steps": 4242,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1414,
+    "mcts_avg_steps": 1466.3333333333333
+  },
+  "5136": {
+    "max_steps": 4584,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1528,
+    "mcts_avg_steps": 1573.3333333333333
+  },
+  "5137": {
+    "max_steps": 4482,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1494,
+    "mcts_avg_steps": 1516.3333333333333
   },
   "3046": {
-    "max_steps": 5000,
+    "max_steps": 4971,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2981,
-    "mcts_avg_steps": 3064.6666666666665
+    "mcts_fastest": 1657,
+    "mcts_avg_steps": 1676.6666666666667
+  },
+  "5138": {
+    "max_steps": 4473,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1491,
+    "mcts_avg_steps": 1531.3333333333333
+  },
+  "5139": {
+    "max_steps": 4920,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1640,
+    "mcts_avg_steps": 1660.6666666666667
+  },
+  "5140": {
+    "max_steps": 4770,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1590,
+    "mcts_avg_steps": 1629.3333333333333
   },
   "3047": {
-    "max_steps": 1932,
+    "max_steps": 4713,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 644,
-    "mcts_avg_steps": 686.3333333333334
+    "mcts_fastest": 1571,
+    "mcts_avg_steps": 1581.0
+  },
+  "5141": {
+    "max_steps": 4644,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1548,
+    "mcts_avg_steps": 1592.0
+  },
+  "5142": {
+    "max_steps": 4737,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1579,
+    "mcts_avg_steps": 1607.0
+  },
+  "5143": {
+    "max_steps": 4746,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1582,
+    "mcts_avg_steps": 1615.6666666666667
   },
   "3048": {
-    "max_steps": 1860,
+    "max_steps": 4032,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 620,
-    "mcts_avg_steps": 780.0
+    "mcts_fastest": 1344,
+    "mcts_avg_steps": 1391.6666666666667
+  },
+  "5144": {
+    "max_steps": 4128,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1376,
+    "mcts_avg_steps": 1400.3333333333333
+  },
+  "5145": {
+    "max_steps": 3525,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1175,
+    "mcts_avg_steps": 1253.6666666666667
+  },
+  "5146": {
+    "max_steps": 3828,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1276,
+    "mcts_avg_steps": 1295.6666666666667
   },
   "3049": {
-    "max_steps": 2163,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 721,
-    "mcts_avg_steps": 837.3333333333334
-  },
-  "0": {
-    "max_steps": 3000,
-    "mcts_wins": 0,
-    "mcts_games": 3,
-    "mcts_fastest": null,
-    "mcts_avg_steps": 5000.0
-  },
-  "1": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 3953,
-    "mcts_avg_steps": 3987.0
+    "mcts_fastest": 2889,
+    "mcts_avg_steps": 2956.0
   },
-  "2": {
+  "5147": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2830,
-    "mcts_avg_steps": 2870.3333333333335
+    "mcts_fastest": 2819,
+    "mcts_avg_steps": 2860.0
   },
-  "3": {
-    "max_steps": 3000,
-    "mcts_wins": 0,
-    "mcts_games": 3,
-    "mcts_fastest": null,
-    "mcts_avg_steps": 5000.0
-  },
-  "4": {
+  "5148": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2950,
-    "mcts_avg_steps": 3003.0
+    "mcts_fastest": 2803,
+    "mcts_avg_steps": 2839.3333333333335
   },
-  "5": {
+  "5149": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2861,
-    "mcts_avg_steps": 2939.6666666666665
+    "mcts_fastest": 2851,
+    "mcts_avg_steps": 2864.0
   },
-  "6": {
+  "3050": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 2229,
-    "mcts_avg_steps": 2254.3333333333335
+    "mcts_fastest": 2195,
+    "mcts_avg_steps": 2288.0
   },
-  "7": {
-    "max_steps": 4776,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 1592,
-    "mcts_avg_steps": 1624.6666666666667
-  },
-  "8": {
-    "max_steps": 3744,
-    "mcts_wins": 3,
-    "mcts_games": 3,
-    "mcts_fastest": 1248,
-    "mcts_avg_steps": 1583.0
-  },
-  "9": {
+  "5150": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 2214,
-    "mcts_avg_steps": 2256.6666666666665
+    "mcts_avg_steps": 2296.0
   },
-  "10": {
+  "5151": {
     "max_steps": 5000,
     "mcts_wins": 3,
     "mcts_games": 3,
-    "mcts_fastest": 3143,
-    "mcts_avg_steps": 3357.6666666666665
+    "mcts_fastest": 1999,
+    "mcts_avg_steps": 2147.6666666666665
   },
-  "11": {
+  "5152": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2138,
+    "mcts_avg_steps": 2215.6666666666665
+  },
+  "3051": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2040,
+    "mcts_avg_steps": 2082.6666666666665
+  },
+  "5153": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1986,
+    "mcts_avg_steps": 2049.3333333333335
+  },
+  "5154": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2060,
+    "mcts_avg_steps": 2062.3333333333335
+  },
+  "5155": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2047,
+    "mcts_avg_steps": 2092.3333333333335
+  },
+  "3052": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2631,
+    "mcts_avg_steps": 2672.3333333333335
+  },
+  "5156": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2656,
+    "mcts_avg_steps": 2668.0
+  },
+  "5157": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2512,
+    "mcts_avg_steps": 2645.3333333333335
+  },
+  "5158": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2555,
+    "mcts_avg_steps": 2617.0
+  },
+  "3053": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1000,
+    "mcts_avg_steps": 1017.6666666666666
+  },
+  "5159": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 987,
+    "mcts_avg_steps": 1033.0
+  },
+  "5160": {
+    "max_steps": 3216,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1072,
+    "mcts_avg_steps": 1084.6666666666667
+  },
+  "5161": {
+    "max_steps": 3114,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1038,
+    "mcts_avg_steps": 1090.3333333333333
+  },
+  "3054": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3498,
+    "mcts_avg_steps": 3557.6666666666665
+  },
+  "5162": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3461,
+    "mcts_avg_steps": 3549.0
+  },
+  "5163": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3509,
+    "mcts_avg_steps": 3610.0
+  },
+  "5164": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3473,
+    "mcts_avg_steps": 3549.3333333333335
+  },
+  "3055": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2639,
+    "mcts_avg_steps": 2676.6666666666665
+  },
+  "5165": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2719,
+    "mcts_avg_steps": 2744.6666666666665
+  },
+  "5166": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2576,
+    "mcts_avg_steps": 2650.6666666666665
+  },
+  "5167": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2672,
+    "mcts_avg_steps": 2697.3333333333335
+  },
+  "3056": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3588,
+    "mcts_avg_steps": 3603.0
+  },
+  "5168": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3587,
+    "mcts_avg_steps": 3599.0
+  },
+  "5169": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3435,
+    "mcts_avg_steps": 3523.0
+  },
+  "5170": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3408,
+    "mcts_avg_steps": 3483.0
+  },
+  "3057": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 4239,
+    "mcts_avg_steps": 4443.333333333333
+  },
+  "5171": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 4304,
+    "mcts_avg_steps": 4364.333333333333
+  },
+  "5172": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 4236,
+    "mcts_avg_steps": 4318.66: {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 4436,
+    "mcts_avg_steps": 4466.0
+  },
+  "3058": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2542,
+    "mcts_avg_steps": 2583.3333333333335
+  },
+  "5174": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2499,
+    "mcts_avg_steps": 2554.3333333333335
+  },
+  "5175": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2492,
+    "mcts_avg_steps": 2521.0
+  },
+  "5176": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 2544,
+    "mcts_avg_steps": 2594.3333333333335
+  },
+  "3059": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3475,
+    "mcts_avg_steps": 3519.3333333333335
+  },
+  "5177": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3349,
+    "mcts_avg_steps": 3490.3333333333335
+  },
+  "5178": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3437,
+    "mcts_avg_steps": 3499.3333333333335
+  },
+  "5179": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 3448,
+    "mcts_avg_steps": 3548.6666666666665
+  },
+  "3060": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 565,
+    "mcts_avg_steps": 582.0
+  },
+  "5180": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 495,
+    "mcts_avg_steps": 519.0
+  },
+  "5181": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 509,
+    "mcts_avg_steps": 541.3333333333334
+  },
+  "5182": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 458,
+    "mcts_avg_steps": 483.0
+  },
+  "3061": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 276,
+    "mcts_avg_steps": 286.6666666666667
+  },
+  "5183": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 282,
+    "mcts_avg_steps": 287.0
+  },
+  "5184": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 296,
+    "mcts_avg_steps": 299.0
+  },
+  "5185": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 259,
+    "mcts_avg_steps": 280.0
+  },
+  "3062": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 662,
+    "mcts_avg_steps": 746.3333333333334
+  },
+  "5186": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 743,
+    "mcts_avg_steps": 765.3333333333334
+  },
+  "5187": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 764,
+    "mcts_avg_steps": 766.6666666666666
+  },
+  "5188": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 672,
+    "mcts_avg_steps": 782.6666666666666
+  },
+  "3063": {
+    "max_steps": 3081,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1027,
+    "mcts_avg_steps": 1039.3333333333333
+  },
+  "5189": {
+    "max_steps": 4623,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1541,
+    "mcts_avg_steps": 1559.0
+  },
+  "5190": {
+    "max_steps": 4623,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1541,
+    "mcts_avg_steps": 1568.3333333333333
+  },
+  "5191": {
+    "max_steps": 4674,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1558,
+    "mcts_avg_steps": 1588.6666666666667
+  },
+  "3064": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 204,
+    "mcts_avg_steps": 212.66666666666666
+  },
+  "5192": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 393,
+    "mcts_avg_steps": 405.6666666666667
+  },
+  "5193": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 408,
+    "mcts_avg_steps": 458.0
+  },
+  "5194": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 489,
+    "mcts_avg_steps": 535.3333333333334
+  },
+  "3065": {
+    "max_steps": 3576,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1192,
+    "mcts_avg_steps": 1207.0
+  },
+  "5195": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1754,
+    "mcts_avg_steps": 1811.3333333333333
+  },
+  "5196": {
+    "max_steps": 4941,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1647,
+    "mcts_avg_steps": 1690.6666666666667
+  },
+  "5197": {
+    "max_steps": 5000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1810,
+    "mcts_avg_steps": 1838.3333333333333
+  },
+  "3066": {
+    "max_steps": 3666,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1222,
+    "mcts_avg_steps": 1253.0
+  },
+  "5198": {
+    "max_steps": 3462,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1154,
+    "mcts_avg_steps": 1189.0
+  },
+  "5199": {
+    "max_steps": 3576,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1192,
+    "mcts_avg_steps": 1194.6666666666667
+  },
+  "5200": {
+    "max_steps": 3471,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1157,
+    "mcts_avg_steps": 1185.0
+  },
+  "3067": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 813,
+    "mcts_avg_steps": 833.0
+  },
+  "5201": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 790,
+    "mcts_avg_steps": 802.0
+  },
+  "5202": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 844,
+    "mcts_avg_steps": 882.3333333333334
+  },
+  "5203": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 832,
+    "mcts_avg_steps": 854.0
+  },
+  "3068": {
+    "max_steps": 3147,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1049,
+    "mcts_avg_steps": 1076.6666666666667
+  },
+  "5204": {
+    "max_steps": 3252,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1084,
+    "mcts_avg_steps": 1108.6666666666667
+  },
+  "5205": {
+    "max_steps": 3174,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1058,
+    "mcts_avg_steps": 1075.6666666666667
+  },
+  "5206": {
+    "max_steps": 3069,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1023,
+    "mcts_avg_steps": 1067.6666666666667
+  },
+  "3069": {
+    "max_steps": 4467,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1489,
+    "mcts_avg_steps": 1528.6666666666667
+  },
+  "5207": {
+    "max_steps": 4521,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1507,
+    "mcts_avg_steps": 1548.3333333333333
+  },
+  "5208": {
+    "max_steps": 4326,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1442,
+    "mcts_avg_steps": 1462.3333333333333
+  },
+  "5209": {
+    "max_steps": 4425,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1475,
+    "mcts_avg_steps": 1555.0
+  },
+  "3070": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 74,
+    "mcts_avg_steps": 77.33333333333333
+  },
+  "5210": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 238,
+    "mcts_avg_steps": 248.33333333333334
+  },
+  "5211": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 280,
+    "mcts_avg_steps": 294.0
+  },
+  "5212": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 275,
+    "mcts_avg_steps": 294.0
+  },
+  "3071": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 180,
+    "mcts_avg_steps": 186.0
+  },
+  "5213": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 353,
+    "mcts_avg_steps": 360.0
+  },
+  "5214": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 362,
+    "mcts_avg_steps": 376.6666666666667
+  },
+  "5215": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 459,
+    "mcts_avg_steps": 472.0
+  },
+  "3072": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 65,
+    "mct: 3,
+    "mcts_games": 3,
+    "mcts_fastest": 65,
+    "mcts_avg_steps": 69.66666666666667
+  },
+  "5216": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 233,
+    "mcts_avg_steps": 254.0
+  },
+  "5217": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 290,
+    "mcts_avg_steps": 309.3333333333333
+  },
+  "5218": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 346,
+    "mcts_avg_steps": 354.6666666666667
+  },
+  "3073": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 182,
+    "mcts_avg_steps": 192.66666666666666
+  },
+  "5219": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 250,
+    "mcts_avg_steps": 261.3333333333333
+  },
+  "5220": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 271,
+    "mcts_avg_steps": 274.0
+  },
+  "5221": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 288,
+    "mcts_avg_steps": 289.6666666666667
+  },
+  "3074": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 165,
+    "mcts_avg_steps": 177.66666666666666
+  },
+  "5222": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 250,
+    "mcts_avg_steps": 268.6666666666667
+  },
+  "5223": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 384,
+    "mcts_avg_steps": 408.3333333333333
+  },
+  "5224": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 422,
+    "mcts_avg_steps": 431.6666666666667
+  },
+  "3075": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 173,
+    "mcts_avg_steps": 185.66666666666666
+  },
+  "5225": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 354,
+    "mcts_avg_steps": 366.3333333333333
+  },
+  "5226": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 364,
+    "mcts_avg_steps": 378.3333333333333
+  },
+  "5227": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 379,
+    "mcts_avg_steps": 400.6666666666667
+  },
+  "3076": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 310,
+    "mcts_avg_steps": 332.0
+  },
+  "5228": {
     "max_steps": 3000,
     "mcts_wins": 0,
     "mcts_games": 3,
     "mcts_fastest": null,
     "mcts_avg_steps": 5000.0
   },
-  "12": {
+  "5229": {
     "max_steps": 3000,
     "mcts_wins": 0,
     "mcts_games": 3,
     "mcts_fastest": null,
     "mcts_avg_steps": 5000.0
   },
-  "13": {
-    "max_steps": 441,
+  "5230": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3077": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 392,
+    "mcts_avg_steps": 408.6666666666667
+  },
+  "5231": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5232": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5233": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3078": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 455,
+    "mcts_avg_steps": 473.0
+  },
+  "5234": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 430,
+    "mcts_avg_steps": 447.0
+  },
+  "5235": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5236": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3079": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 592,
+    "mcts_avg_steps": 611.0
+  },
+  "5237": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 611,
+    "mcts_avg_steps": 631.3333333333334
+  },
+  "5238": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5239": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3080": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 434,
+    "mcts_avg_steps": 465.3333333333333
+  },
+  "5240": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 564,
+    "mcts_avg_steps": 571.3333333333334
+  },
+  "5241": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 606,
+    "mcts_avg_steps": 617.6666666666666
+  },
+  "5242": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3081": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 611,
+    "mcts_avg_steps": 640.6666666666666
+  },
+  "5243": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 610,
+    "mcts_avg_steps": 620.6666666666666
+  },
+  "5244": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 570,
+    "mcts_avg_steps": 583.3333333333334
+  },
+  "5245": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 563,
+    "mcts_avg_steps": 613.6666666666666
+  },
+  "3082": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 715,
+    "mcts_avg_steps": 731.3333333333334
+  },
+  "5246": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 661,
+    "mcts_avg_steps": 698.3333333333334
+  },
+  "5247": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 667,
+    "mcts_avg_steps": 683.6666666666666
+  },
+  "5248": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3083": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 547,
+    "mcts_avg_steps": 591.0
+  },
+  "5249": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 574,
+    "mcts_avg_steps": 582.3333333333334
+  },
+  "5250": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 649,
+    "mcts_avg_steps": 658.0
+  },
+  "5251": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 640,
+    "mcts_avg_steps": 665.3333333333334
+  },
+  "3084": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 994,
+    "mcts_avg_steps": 1018.3333333333334
+  },
+  "5252": {
+    "max_steps": 3252,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1084,
+    "mcts_avg_steps": 1107.0
+  },
+  "5253": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 992,
+    "mcts_avg_steps": 1048.6666666666667
+  },
+  "5254": {
+    "max_steps": 3057,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1019,
+    "mcts_avg_steps": 1085.0
+  },
+  "3085": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 673,
+    "mcts_avg_steps": 676.0
+  },
+  "5255": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 641,
+    "mcts_avg_steps": 680.0
+  },
+  "5256": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 780,
+    "mcts_avg_steps": 818.3333333333334
+  },
+  "5257": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 760,
+    "mcts_avg_steps": 807.0
+  },
+  "3086": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5258": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5259": {
+    "max_steps": 3000,
+    "mcts_wins":null,
+    "mcts_avg_: 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5260": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3087": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 776,
+    "mcts_avg_steps": 803.3333333333334
+  },
+  "5261": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 833,
+    "mcts_avg_steps": 865.0
+  },
+  "5262": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 836,
+    "mcts_avg_steps": 878.0
+  },
+  "5263": {
+    "max_steps": 3282,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1094,
+    "mcts_avg_steps": 1113.0
+  },
+  "3088": {
+    "max_steps": 3369,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1123,
+    "mcts_avg_steps": 1145.0
+  },
+  "5264": {
+    "max_steps": 3420,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1140,
+    "mcts_avg_steps": 1208.3333333333333
+  },
+  "5265": {
+    "max_steps": 3396,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1132,
+    "mcts_avg_steps": 1228.3333333333333
+  },
+  "5266": {
+    "max_steps": 3579,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1193,
+    "mcts_avg_steps": 1222.0
+  },
+  "3089": {
+    "max_steps": 3342,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1114,
+    "mcts_avg_steps": 1174.6666666666667
+  },
+  "5267": {
+    "max_steps": 3408,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1136,
+    "mcts_avg_steps": 1157.0
+  },
+  "5268": {
+    "max_steps": 4440,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1480,
+    "mcts_avg_steps": 1509.6666666666667
+  },
+  "5269": {
+    "max_steps": 4458,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1486,
+    "mcts_avg_steps": 1524.3333333333333
+  },
+  "3090": {
+    "max_steps": 3489,
+    "mcts_wins": 2,
+    "mcts_games": 3,
+    "mcts_fastest": 1163,
+    "mcts_avg_steps": 2919.3333333333335
+  },
+  "5270": {
+    "max_steps": 4803,
+    "mcts_wins": 1,
+    "mcts_games": 3,
+    "mcts_fastest": 1601,
+    "mcts_avg_steps": 3867.0
+  },
+  "5271": {
+    "max_steps": 3501,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1167,
+    "mcts_avg_steps": 1216.0
+  },
+  "5272": {
+    "max_steps": 4101,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1367,
+    "mcts_avg_steps": 1409.0
+  },
+  "3091": {
+    "max_steps": 3000,
+    "mcts_wins": 2,
+    "mcts_games": 3,
+    "mcts_fastest": 564,
+    "mcts_avg_steps": 2095.0
+  },
+  "5273": {
+    "max_steps": 3663,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1221,
+    "mcts_avg_steps": 1273.6666666666667
+  },
+  "5274": {
+    "max_steps": 3657,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1219,
+    "mcts_avg_steps": 1339.6666666666667
+  },
+  "5275": {
+    "max_steps": 3501,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1167,
+    "mcts_avg_steps": 1212.3333333333333
+  },
+  "3092": {
+    "max_steps": 3789,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1263,
+    "mcts_avg_steps": 1297.6666666666667
+  },
+  "5276": {
+    "max_steps": 3690,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1230,
+    "mcts_avg_steps": 1285.0
+  },
+  "5277": {
+    "max_steps": 3960,
+    "mcts_wins": 2,
+    "mcts_games": 3,
+    "mcts_fastest": 1320,
+    "mcts_avg_steps": 2547.0
+  },
+  "5278": {
+    "max_steps": 3873,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1291,
+    "mcts_avg_steps": 1332.6666666666667
+  },
+  "3093": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5279": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5280": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5281": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "3094": {
+    "max_steps": 5000,
+    "mcts_wins": 1,
+    "mcts_games": 3,
+    "mcts_fastest": 2210,
+    "mcts_avg_steps": 4070.0
+  },
+  "5282": {
+    "max_steps": 3000,
+    "mcts_wins": 0,
+    "mcts_games": 3,
+    "mcts_fastest": null,
+    "mcts_avg_steps": 5000.0
+  },
+  "5283": {
+    "max_steps": 5000,
+    "mcts_wins": 1,
+    "mcts_games": 3,
+    "mcts_fastest": 2340,
+    "mcts_avg_steps": 4113.333333333333
+  },
+  "5284": {
+    "max_steps": 5000,
+    "mcts_wins": 1,
+    "mcts_games": 3,
+    "mcts_fastest": 2282,
+    "mcts_avg_steps": 4094.0
+  },
+  "3095": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 150,
+    "mcts_avg_steps": 159.66666666666666
+  },
+  "5285": {
+    "max_steps": 3000,
     "mcts_wins": 3,
     "mcts_games": 3,
     "mcts_fastest": 147,
-    "mcts_avg_steps": 172.0
+    "mcts_avg_steps": 149.66666666666666
   },
-  "100": {
+  "5286": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 206,
+    "mcts_avg_steps": 215.0
+  },
+  "5287": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 206,
+    "mcts_avg_steps": 214.0
+  },
+  "3096": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 203,
+    "mcts_avg_steps": 211.33333333333334
+  },
+  "5288": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 229,
+    "mcts_avg_steps": 239.0
+  },
+  "5289": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 317,
+    "mcts_avg_steps": 331.6666666666667
+  },
+  "5290": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 356,
+    "mcts_avg_steps": 387.6666666666667
+  },
+  "3097": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 246,
+    "mcts_avg_steps": 250.33333333333334
+  },
+  "5291": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 238,
+    "mcts_avg_steps": 244.33333333333334
+  },
+  "5292": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 380,
+    "mcts_avg_steps": 393.3333333333333
+  },
+  "5293": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 396,
+    "mcts_avg_steps": 429.6666666666667
+  },
+  "3098": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 302,
+    "mcts_avg_steps": 310.6666666666667
+  },
+  "5294": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 320,
+    "mcts_avg_steps": 326.6666666666667
+  },
+  "5295": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 302,
+    "mcts_avg_steps": 320.3333333333333
+  },
+  "5296": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 407,
+    "mcts_avg_steps": 423.3333333333333
+  },
+  "3099": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 264,
+    "mcts_avg_steps": 276.3333333333333
+  },
+  "5297": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 329,
+    "mcts_avg_steps": 349.6666666666667
+  },
+  "5298": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 342,
+    "mcts_avg_steps": 368.0
+  },
+  "5299": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 351,
+    "mcts_avg_steps": 386.0
+  },
+  "3100": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 336,
+    "mcts_avg_steps": 351.6666666666667
+  },
+  "5300": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 463,
+    "mcts_avg_steps": 469.0
+  },
+  "5301": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 441,
+    "mcts_avg_steps": 475.3333333333333
+  },
+  "5302": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 561,
+    "mcts_avg_steps": 641.6666666666666
+  },
+  "3101": {
+    "max_steps": 3000,
+    ": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 465,
+    "mcts_avg_steps": 469.6666666666667
+  },
+  "5303": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 427,
+    "mcts_avg_steps": 435.6666666666667
+  },
+  "5304": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 440,
+    "mcts_avg_steps": 452.0
+  },
+  "5305": {
     "max_steps": 3000,
     "mcts_wins": 0,
     "mcts_games": 3,
     "mcts_fastest": null,
     "mcts_avg_steps": 5000.0
+  },
+  "3102": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 442,
+    "mcts_avg_steps": 501.0
+  },
+  "5306": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 455,
+    "mcts_avg_steps": 473.6666666666667
+  },
+  "5307": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 469,
+    "mcts_avg_steps": 485.6666666666667
+  },
+  "5308": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 480,
+    "mcts_avg_steps": 488.6666666666667
+  },
+  "3103": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 441,
+    "mcts_avg_steps": 469.0
+  },
+  "5309": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 510,
+    "mcts_avg_steps": 530.0
+  },
+  "5310": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 548,
+    "mcts_avg_steps": 557.3333333333334
+  },
+  "5311": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 830,
+    "mcts_avg_steps": 864.6666666666666
+  },
+  "3104": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 495,
+    "mcts_avg_steps": 539.0
+  },
+  "5312": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 518,
+    "mcts_avg_steps": 666.3333333333334
+  },
+  "5313": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 873,
+    "mcts_avg_steps": 882.0
+  },
+  "5314": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 591,
+    "mcts_avg_steps": 787.0
+  },
+  "3105": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 227,
+    "mcts_avg_steps": 231.0
+  },
+  "5315": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 129,
+    "mcts_avg_steps": 216.66666666666666
+  },
+  "5316": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 283,
+    "mcts_avg_steps": 293.0
+  },
+  "5317": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 467,
+    "mcts_avg_steps": 492.0
+  },
+  "3106": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 128,
+    "mcts_avg_steps": 134.0
+  },
+  "5318": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 123,
+    "mcts_avg_steps": 134.33333333333334
+  },
+  "5319": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 158,
+    "mcts_avg_steps": 160.66666666666666
+  },
+  "5320": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 154,
+    "mcts_avg_steps": 164.33333333333334
+  },
+  "3107": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 56,
+    "mcts_avg_steps": 56.0
+  },
+  "5321": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 226,
+    "mcts_avg_steps": 239.0
+  },
+  "5322": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 310,
+    "mcts_avg_steps": 329.3333333333333
+  },
+  "5323": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 334,
+    "mcts_avg_steps": 336.3333333333333
+  },
+  "3108": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 122,
+    "mcts_avg_steps": 128.33333333333334
+  },
+  "5324": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 328,
+    "mcts_avg_steps": 345.6666666666667
+  },
+  "5325": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 378,
+    "mcts_avg_steps": 387.3333333333333
+  },
+  "5326": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 370,
+    "mcts_avg_steps": 443.0
+  },
+  "3109": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 183,
+    "mcts_avg_steps": 188.0
+  },
+  "5327": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 352,
+    "mcts_avg_steps": 367.6666666666667
+  },
+  "5328": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 362,
+    "mcts_avg_steps": 424.6666666666667
+  },
+  "5329": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 455,
+    "mcts_avg_steps": 586.0
+  },
+  "3110": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 175,
+    "mcts_avg_steps": 175.66666666666666
+  },
+  "5330": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 372,
+    "mcts_avg_steps": 402.3333333333333
+  },
+  "5331": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 431,
+    "mcts_avg_steps": 454.0
+  },
+  "5332": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 454,
+    "mcts_avg_steps": 513.6666666666666
+  },
+  "3111": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 242,
+    "mcts_avg_steps": 247.66666666666666
+  },
+  "5333": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 230,
+    "mcts_avg_steps": 272.0
+  },
+  "5334": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 459,
+    "mcts_avg_steps": 465.6666666666667
+  },
+  "5335": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 481,
+    "mcts_avg_steps": 524.6666666666666
+  },
+  "3112": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 377,
+    "mcts_avg_steps": 407.6666666666667
+  },
+  "5336": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 409,
+    "mcts_avg_steps": 436.3333333333333
+  },
+  "5337": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 463,
+    "mcts_avg_steps": 542.3333333333334
+  },
+  "5338": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 592,
+    "mcts_avg_steps": 695.0
+  },
+  "3113": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 287,
+    "mcts_avg_steps": 293.6666666666667
+  },
+  "5339": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 384,
+    "mcts_avg_steps": 406.6666666666667
+  },
+  "5340": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 345,
+    "mcts_avg_steps": 374.3333333333333
+  },
+  "5341": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 555,
+    "mcts_avg_steps": 643.3333333333334
+  },
+  "3114": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 384,
+    "mcts_avg_steps": 393.6666666666667
+  },
+  "5342": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 350,
+    "mcts_avg_steps": 430.0
+  },
+  "5343": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 472,
+    "mcts_avg_steps": 571.0
+  },
+  "5344": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 476,
+    "mcts_avg_steps": 500.3333333333333
+  },
+  "3115": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 430,
+    "mcts_avg_steps": 464.6666666666667
+  },
+  "5345": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 417,
+    "mcts_avg_steps": 431.0
+  },
+  "5346": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 560,
+    "mcts_avg_steps": 568.0
+  },
+  "5347": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 562,
+    "mcts_avg_steps": 642.6666666666666
+  },
+  "3116": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 412,
+    "mcts_avg_steps": 438.3333333333333
+  },
+  "5348": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 422,
+    "mcts_avg_steps": 465.0
+  },
+  "5349": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 746,
+    "mcts_avg_steps": 761.3333333333334
+  },
+  "5350": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 771,
+    "mcts_avg_steps": 798.6666666666666
+  },
+  "3117": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 499,
+    "mcts_avg_steps": 519.3333333333334
+  },
+  "5351": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 587,
+    "mcts_avg_steps": 603.6666666666666
+  },
+  "5352": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 680,
+    "mcts_avg_steps": 718.6666666666666
+  },
+  "5353": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 664,
+    "mcts_avg_steps": 714.3333333333334
+  },
+  "3118": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 420,
+    "mcts_avg_steps": 457.0
+  },
+  "5354": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 443,
+    "mcts_avg_steps": 476.3333333333333
+  },
+  "5355": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 452,
+    "mcts_avg_steps": 580.0
+  },
+  "5356": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 607,
+    "mcts_avg_steps": 651.6666666666666
+  },
+  "3119": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 656,
+    "mcts_avg_steps": 700.3333333333334
+  },
+  "5357": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 718,
+    "mcts_avg_steps": 753.0
+  },
+  "5358": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 717,
+    "mcts_avg_steps": 879.0
+  },
+  "5359": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 989,
+    "mcts_avg_steps": 1053.0
+  },
+  "3120": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 473,
+    "mcts_avg_steps": 529.0
+  },
+  "5360": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 674,
+    "mcts_avg_steps": 789.0
+  },
+  "5361": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 851,
+    "mcts_avg_steps": 916.6666666666666
+  },
+  "5362": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 831,
+    "mcts_avg_steps": 869.3333333333334
+  },
+  "3121": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 638,
+    "mcts_avg_steps": 704.6666666666666
+  },
+  "5363": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 751,
+    "mcts_avg_steps": 765.0
+  },
+  "5364": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 714,
+    "mcts_avg_steps": 745.6666666666666
+  },
+  "5365": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 689,
+    "mcts_avg_steps": 743.0
+  },
+  "3122": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 823,
+    "mcts_avg_steps": 855.3333333333334
+  },
+  "5366": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 870,
+    "mcts_avg_steps": 894.0
+  },
+  "5367": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 782,
+    "mcts_avg_steps": 822.6666666666666
+  },
+  "5368": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 961,
+    "mcts_avg_steps": 1004.3333333333334
+  },
+  "3123": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 733,
+    "mcts_avg_steps": 747.6666666666666
+  },
+  "5369": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 778,
+    "mcts_avg_steps": 814.3333333333334
+  },
+  "5370": {
+    "max_steps": 3015,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1005,
+    "mcts_avg_steps": 1100.3333333333333
+  },
+  "5371": {
+    "max_steps": 3507,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1169,
+    "mcts_avg_steps": 1219.0
+  },
+  "3124": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 622,
+    "mcts_avg_steps": 733.0
+  },
+  "5372": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 787,
+    "mcts_avg_steps": 873.3333333333334
+  },
+  "5373": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 798,
+    "mcts_avg_steps": 923.3333333333334
+  },
+  "5374": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 941,
+    "mcts_avg_steps": 1001.6666666666666
+  },
+  "3125": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 742,
+    "mcts_avg_steps": 820.6666666666666
+  },
+  "5375": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 865,
+    "mcts_avg_steps": 1057.6666666666667
+  },
+  "5376": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 944,
+    "mcts_avg_steps": 1074.6666666666667
+  },
+  "5377": {
+    "max_steps": 3054,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1018,
+    "mcts_avg_steps": 1045.3333333333333
+  },
+  "3126": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 909,
+    "mcts_avg_steps": 932.3333333333334
+  },
+  "5378": {
+    "max_steps": 3105,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1035,
+    "mcts_avg_steps": 1046.0
+  },
+  "5379": {
+    "max_steps": 3054,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1018,
+    "mcts_avg_steps": 1087.6666666666667
+  },
+  "5380": {
+    "max_steps": 3057,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1019,
+    "mcts_avg_steps": 1078.6666666666667
+  },
+  "3127": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 713,
+    "mcts_avg_steps": 721.0
+  },
+  "5381": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 732,
+    "mcts_avg_steps": 755.3333333333334
+  },
+  "5382": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 943,
+    "mcts_avg_steps": 998.3333333333334
+  },
+  "5383": {
+    "max_steps": 3603,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1201,
+    "mcts_avg_steps": 1266.6666666666667
+  },
+  "3128": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 749,
+    "mcts_avg_steps": 822.3333333333334
+  },
+  "5384": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 751,
+    "mcts_avg_steps": 822.3333333333334
+  },
+  "5385": {
+    "max_steps": 3819,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1273,
+    "mcts_avg_steps": 1279.6666666666667
+  },
+  "5386": {
+    "max_steps": 3657,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1219,
+    "mcts_avg_steps": 1283.0
+  },
+  "3129": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 829,
+    "mcts_avg_steps": 868.6666666666666
+  }
+}666666666666
+  },
+  "5387": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 924,
+    "mcts_avg_steps": 1001.6666666666666
+  },
+  "5388": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 950,
+    "mcts_avg_steps": 1054.3333333333333
+  },
+  "5389": {
+    "max_steps": 3567,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 1189,
+    "mcts_avg_steps": 1246.6666666666667
+  },
+  "3130": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 108,
+    "mcts_avg_steps": 110.33333333333333
+  },
+  "5390": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 148,
+    "mcts_avg_steps": 150.66666666666666
+  },
+  "5391": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 255,
+    "mcts_avg_steps": 269.0
+  },
+  "5392": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 287,
+    "mcts_avg_steps": 325.3333333333333
+  },
+  "3131": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 107,
+    "mcts_avg_steps": 107.0
+  },
+  "5393": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 150,
+    "mcts_avg_steps": 186.0
+  },
+  "5394": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 237,
+    "mcts_avg_steps": 248.0
+  },
+  "5395": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 341,
+    "mcts_avg_steps": 395.6666666666667
+  },
+  "3132": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 103,
+    "mcts_avg_steps": 107.66666666666667
+  },
+  "5396": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 137,
+    "mcts_avg_steps": 137.66666666666666
+  },
+  "5397": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 241,
+    "mcts_avg_steps": 246.0
+  },
+  "5398": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 379,
+    "mcts_avg_steps": 383.6666666666667
+  },
+  "3133": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 122,
+    "mcts_avg_steps": 122.33333333333333
+  },
+  "5399": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 356,
+    "mcts_avg_steps": 384.6666666666667
+  },
+  "5400": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 378,
+    "mcts_avg_steps": 393.3333333333333
+  },
+  "5401": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 466,
+    "mcts_avg_steps": 507.6666666666667
+  },
+  "3134": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 128,
+    "mcts_avg_steps": 132.0
+  },
+  "5402": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 309,
+    "mcts_avg_steps": 322.6666666666667
+  },
+  "5403": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 345,
+    "mcts_avg_steps": 350.6666666666667
+  },
+  "5404": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 427,
+    "mcts_avg_steps": 429.6666666666667
+  },
+  "3135": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 141,
+    "mcts_avg_steps": 142.0
+  },
+  "5405": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 418,
+    "mcts_avg_steps": 435.0
+  },
+  "5406": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 501,
+    "mcts_avg_steps": 511.0
+  },
+  "5407": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 524,
+    "mcts_avg_steps": 552.6666666666666
+  },
+  "3136": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 143,
+    "mcts_avg_steps": 147.66666666666666
+  },
+  "5408": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 433,
+    "mcts_avg_steps": 468.0
+  },
+  "5409": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 710,
+    "mcts_avg_steps": 729.0
+  },
+  "5410": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 739,
+    "mcts_avg_steps": 824.6666666666666
+  },
+  "3137": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 164,
+    "mcts_avg_steps": 172.33333333333334
+  },
+  "5411": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 476,
+    "mcts_avg_steps": 502.0
+  },
+  "5412": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 531,
+    "mcts_avg_steps": 625.3333333333334
+  },
+  "5413": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 805,
+    "mcts_avg_steps": 899.0
+  },
+  "3138": {
+    "max_steps": 3000,
+    "mcts_wins": 3,
+    "mcts_games": 3,
+    "mcts_fastest": 151,
+    "mcts_avg_steps": 151.66666666666666
   }
 }

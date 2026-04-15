@@ -5,6 +5,32 @@ use crate::real_game::RealSpaceAceGame;
 const CELL_SIZE: f32 = 10.0;
 const INFLATION_RADIUS: f32 = 35.0;
 
+/// Raw difficulty metrics computed from pathfinder analysis.
+/// All values are unnormalized; normalization happens in Python.
+#[derive(Debug, Clone, Default)]
+pub struct DifficultyMetrics {
+    // Tier 1: Static geometry
+    pub num_walls: u32,
+    pub wall_density: f64,
+    pub num_pickups: u32,
+    pub pickup_spread: f64,
+
+    // Tier 2: Pathfinder-derived
+    pub total_route_length: f64,
+    pub detour_ratio: f64,
+    pub bottleneck_clearance: f64,  // minimum wall distance along optimal route
+
+    // Tier 3: Physics-informed
+    pub upward_travel: f64,          // total upward distance along route
+    pub upward_travel_tight: f64,    // upward distance in tight corridors (<73px clearance)
+    pub maneuver_count: u32,         // sharp turns in tight spaces
+    pub worst_maneuver_angle: f64,   // radians, largest turn angle at a tight point
+
+    // Map dimensions
+    pub map_width: f64,
+    pub map_height: f64,
+}
+
 fn point_to_segment_dist_sq(px: f32, py: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
     let dx = x2 - x1;
     let dy = y2 - y1;
@@ -151,18 +177,31 @@ impl PathfinderGrid {
         let mut heap = BinaryHeap::new();
 
         if blocked[sr * cols + sc] {
-            for &(dr, dc, cost) in &NEIGHBORS {
-                let nr = sr as i32 + dr;
-                let nc = sc as i32 + dc;
-                if nr >= 0 && nr < rows as i32 && nc >= 0 && nc < cols as i32 {
-                    let nr = nr as usize;
-                    let nc = nc as usize;
-                    let idx = nr * cols + nc;
-                    if !blocked[idx] {
-                        dist[idx] = cost;
-                        heap.push(Reverse((cost, nr, nc)));
+            // Start cell is inside a wall's inflation zone. Seed from the nearest
+            // unblocked cells within a wider search radius (up to ~100px / CELL_SIZE cells).
+            let max_radius: i32 = 10; // 10 cells * 10px = 100px search
+            let mut found = false;
+            for radius in 1..=max_radius {
+                for dr in -radius..=radius {
+                    for dc_val in -radius..=radius {
+                        if dr.abs() != radius && dc_val.abs() != radius { continue; }
+                        let nr = sr as i32 + dr;
+                        let nc = sc as i32 + dc_val;
+                        if nr >= 0 && nr < rows as i32 && nc >= 0 && nc < cols as i32 {
+                            let nr = nr as usize;
+                            let nc = nc as usize;
+                            let idx = nr * cols + nc;
+                            if !blocked[idx] {
+                                // Cost proportional to distance from actual start
+                                let cell_dist = ((dr.abs().max(dc_val.abs())) as i32) * 10;
+                                dist[idx] = cell_dist;
+                                heap.push(Reverse((cell_dist, nr, nc)));
+                                found = true;
+                            }
+                        }
                     }
                 }
+                if found { break; }
             }
         } else {
             heap.push(Reverse((0, sr, sc)));
@@ -586,6 +625,7 @@ impl PathfinderGrid {
         let mut mask = full_mask;
         let mut cur = best_last;
         for _ in 0..n {
+            if cur >= n { break; } // unreachable pickup in path
             order.push(uncollected[cur]);
             let prev = parent[mask][cur];
             mask ^= 1 << cur;
@@ -692,6 +732,230 @@ impl PathfinderGrid {
 
     pub fn get_pickup_coords(&self) -> &[(f32, f32)] {
         &self.pickup_coords
+    }
+
+    /// Analyze level difficulty metrics. Returns a DifficultyMetrics struct
+    /// containing all raw sub-scores for the difficulty algorithm.
+    /// `ship_x, ship_y` should be the spawn position.
+    pub fn analyze_difficulty(&self, ship_x: f32, ship_y: f32,
+                               map_lines: &[(f32, f32, f32, f32)]) -> DifficultyMetrics {
+        let collected = vec![false; self.total_pickups];
+
+        // --- 1. Build clearance field: actual min wall distance per unblocked cell ---
+        let clearance = self.build_clearance_field(map_lines);
+
+        // --- 2. Compute TSP order and route ---
+        let tsp_order = self.held_karp_tsp(ship_x, ship_y, &collected);
+        if tsp_order.is_empty() || self.total_pickups == 0 {
+            return DifficultyMetrics::default();
+        }
+
+        // Trace full path along TSP order: ship -> pickup[0] -> pickup[1] -> ...
+        let mut full_path_cells: Vec<(usize, usize)> = Vec::new();
+        let mut segment_bfs_dists: Vec<f64> = Vec::new();
+        let mut segment_euclid_dists: Vec<f64> = Vec::new();
+
+        // Ship to first pickup
+        let (sr, sc) = Self::to_grid_unblocked(
+            self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
+        {
+            let path = self.get_path_to_specific_pickup(ship_x, ship_y, tsp_order[0]);
+            for &(wx, wy) in &path {
+                let (r, c) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, wx, wy);
+                full_path_cells.push((r, c));
+            }
+            let d = self.distance_fields[tsp_order[0]][sr * self.cols + sc];
+            let bfs_dist = if d >= 0 { d as f64 * CELL_SIZE as f64 / 10.0 } else { 0.0 };
+            let (tx, ty) = self.pickup_coords[tsp_order[0]];
+            let euclid = (((ship_x - tx) as f64).powi(2) + ((ship_y - ty) as f64).powi(2)).sqrt();
+            segment_bfs_dists.push(bfs_dist);
+            segment_euclid_dists.push(euclid);
+        }
+
+        // Between consecutive pickups
+        for w in tsp_order.windows(2) {
+            let from_idx = w[0];
+            let to_idx = w[1];
+            let (fx, fy) = self.pickup_coords[from_idx];
+            let path = self.get_path_to_specific_pickup(fx, fy, to_idx);
+            for &(wx, wy) in &path {
+                let (r, c) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, wx, wy);
+                full_path_cells.push((r, c));
+            }
+            let (fr, fc) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, fx, fy);
+            let d = self.distance_fields[to_idx][fr * self.cols + fc];
+            let bfs_dist = if d >= 0 { d as f64 * CELL_SIZE as f64 / 10.0 } else { 0.0 };
+            let (tx, ty) = self.pickup_coords[to_idx];
+            let euclid = (((fx - tx) as f64).powi(2) + ((fy - ty) as f64).powi(2)).sqrt();
+            segment_bfs_dists.push(bfs_dist);
+            segment_euclid_dists.push(euclid);
+        }
+
+        // --- 3. Metrics from route ---
+
+        // Total route length
+        let total_route_length: f64 = segment_bfs_dists.iter().sum();
+
+        // Detour ratio
+        let detour_ratio = if !segment_bfs_dists.is_empty() {
+            let ratios: Vec<f64> = segment_bfs_dists.iter().zip(segment_euclid_dists.iter())
+                .map(|(&b, &e)| if e > 1.0 { b / e } else { 1.0 })
+                .collect();
+            ratios.iter().sum::<f64>() / ratios.len() as f64
+        } else {
+            1.0
+        };
+
+        // Bottleneck clearance along route
+        let mut min_clearance: f32 = f32::MAX;
+        for &(r, c) in &full_path_cells {
+            let idx = r * self.cols + c;
+            if idx < clearance.len() && clearance[idx] < min_clearance {
+                min_clearance = clearance[idx];
+            }
+        }
+        if min_clearance == f32::MAX { min_clearance = 200.0; }
+
+        // Upward travel distance (gravity penalty)
+        let mut upward_travel: f64 = 0.0;
+        let mut upward_travel_tight: f64 = 0.0;
+        for w in full_path_cells.windows(2) {
+            let (r1, _c1) = w[0];
+            let (r2, _c2) = w[1];
+            // In screen coords, lower row = higher on screen = upward
+            if r2 < r1 {
+                let dy = (r1 - r2) as f64 * CELL_SIZE as f64;
+                upward_travel += dy;
+                // Check if this segment is in a tight area
+                let idx = r2 * self.cols + w[1].1;
+                let cl = if idx < clearance.len() { clearance[idx] } else { 200.0 };
+                if cl < 73.0 { // 2x ship radius
+                    upward_travel_tight += dy;
+                }
+            }
+        }
+
+        // Maneuver points: sharp turns in tight corridors
+        let mut maneuver_count: u32 = 0;
+        let mut worst_maneuver_angle: f64 = 0.0;
+        if full_path_cells.len() >= 3 {
+            // Sample every 3 cells to avoid noise
+            let step = 3;
+            let mut i = 0;
+            while i + 2 * step < full_path_cells.len() {
+                let (r0, c0) = full_path_cells[i];
+                let (r1, c1) = full_path_cells[i + step];
+                let (r2, c2) = full_path_cells[i + 2 * step];
+
+                let dx1 = c1 as f64 - c0 as f64;
+                let dy1 = r1 as f64 - r0 as f64;
+                let dx2 = c2 as f64 - c1 as f64;
+                let dy2 = r2 as f64 - r1 as f64;
+
+                let mag1 = (dx1 * dx1 + dy1 * dy1).sqrt();
+                let mag2 = (dx2 * dx2 + dy2 * dy2).sqrt();
+
+                if mag1 > 0.1 && mag2 > 0.1 {
+                    let dot = dx1 * dx2 + dy1 * dy2;
+                    let cos_angle = (dot / (mag1 * mag2)).clamp(-1.0, 1.0);
+                    let angle = cos_angle.acos(); // radians, 0 = straight, PI = u-turn
+
+                    if angle > std::f64::consts::FRAC_PI_4 { // > 45 degrees
+                        // Check clearance at turn point
+                        let idx = r1 * self.cols + c1;
+                        let cl = if idx < clearance.len() { clearance[idx] } else { 200.0 };
+                        if cl < 73.0 { // 2x ship radius
+                            maneuver_count += 1;
+                            if angle > worst_maneuver_angle {
+                                worst_maneuver_angle = angle;
+                            }
+                        }
+                    }
+                }
+                i += step;
+            }
+        }
+
+        // --- 4. Static geometry metrics ---
+
+        // Wall density
+        let total_wall_length: f64 = map_lines.iter().map(|&(x1, y1, x2, y2)| {
+            (((x2 - x1) as f64).powi(2) + ((y2 - y1) as f64).powi(2)).sqrt()
+        }).sum();
+        let map_w = (self.cols as f64) * CELL_SIZE as f64;
+        let map_h = (self.rows as f64) * CELL_SIZE as f64;
+        let map_area = map_w * map_h;
+        let wall_density = if map_area > 0.0 { total_wall_length / map_area } else { 0.0 };
+
+        // Vertex/line counts
+        let num_walls = map_lines.len() as u32;
+
+        // Pickup spread: mean pairwise distance
+        let pickup_spread = if self.total_pickups >= 2 {
+            let mut total = 0.0f64;
+            let mut count = 0u32;
+            for i in 0..self.total_pickups {
+                for j in (i+1)..self.total_pickups {
+                    let (x1, y1) = self.pickup_coords[i];
+                    let (x2, y2) = self.pickup_coords[j];
+                    total += (((x2 - x1) as f64).powi(2) + ((y2 - y1) as f64).powi(2)).sqrt();
+                    count += 1;
+                }
+            }
+            total / count as f64
+        } else {
+            0.0
+        };
+
+        DifficultyMetrics {
+            // Tier 1: Static geometry
+            num_walls,
+            wall_density,
+            num_pickups: self.total_pickups as u32,
+            pickup_spread,
+
+            // Tier 2: Pathfinder-derived
+            total_route_length,
+            detour_ratio,
+            bottleneck_clearance: min_clearance as f64,
+
+            // Tier 3: Physics-informed
+            upward_travel,
+            upward_travel_tight,
+            maneuver_count,
+            worst_maneuver_angle,
+
+            // Map dimensions
+            map_width: map_w,
+            map_height: map_h,
+        }
+    }
+
+    /// Build a clearance field: for each unblocked cell, stores the actual
+    /// minimum distance to the nearest wall segment. Blocked cells get 0.0.
+    fn build_clearance_field(&self, map_lines: &[(f32, f32, f32, f32)]) -> Vec<f32> {
+        let mut clearance = vec![0.0f32; self.rows * self.cols];
+
+        for r in 0..self.rows {
+            for c in 0..self.cols {
+                let idx = r * self.cols + c;
+                if self.blocked[idx] {
+                    continue;
+                }
+                let cx = self.min_x + (c as f32 + 0.5) * CELL_SIZE;
+                let cy = self.min_y + (r as f32 + 0.5) * CELL_SIZE;
+
+                let mut min_dist_sq = f32::MAX;
+                for &(x1, y1, x2, y2) in map_lines {
+                    let d = point_to_segment_dist_sq(cx, cy, x1, y1, x2, y2);
+                    if d < min_dist_sq {
+                        min_dist_sq = d;
+                    }
+                }
+                clearance[idx] = min_dist_sq.sqrt();
+            }
+        }
+        clearance
     }
 
     fn greedy_remaining_cost(&self, start_idx: usize, remaining: &[usize]) -> i64 {

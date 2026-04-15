@@ -23,7 +23,7 @@ use alphazero_mcts::{alphazero_search, AlphaZeroParams};
 
 pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
     let state = game.get_state();
-    let mut obs = Vec::with_capacity(19);
+    let mut obs = Vec::with_capacity(20);
 
     // Ship state (5 values)
     obs.push(state.ship_x);
@@ -51,6 +51,28 @@ pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
     let h = bounds.max_y - bounds.min_y;
     obs.push(if w > 0.0 { (state.ship_x - bounds.min_x) / w } else { 0.5 });
     obs.push(if h > 0.0 { (state.ship_y - bounds.min_y) / h } else { 0.5 });
+
+    // Minimum time-to-impact across 8 raycast directions (1 value, index 19)
+    // Computed here to avoid redundant sin/cos in Python.
+    let cos_r = state.ship_rotation.cos();
+    let sin_r = state.ship_rotation.sin();
+    let base_dirs: [(f32, f32); 8] = [
+        (0.0, -1.0), (0.707, -0.707), (1.0, 0.0), (0.707, 0.707),
+        (0.0, 1.0), (-0.707, 0.707), (-1.0, 0.0), (-0.707, -0.707),
+    ];
+    let mut min_tti: f32 = f32::INFINITY;
+    for (i, &(dx, dy)) in base_dirs.iter().enumerate() {
+        let world_dx = dx * cos_r - dy * sin_r;
+        let world_dy = dx * sin_r + dy * cos_r;
+        let v_toward = state.ship_vx * world_dx + state.ship_vy * world_dy;
+        if v_toward > 1.0 {
+            let tti = wall_distances[i] / v_toward;
+            if tti < min_tti {
+                min_tti = tti;
+            }
+        }
+    }
+    obs.push(min_tti);
 
     obs
 }
@@ -526,6 +548,35 @@ impl PyPathfinder {
             PathfinderKind::Spatial(pf) => Ok(pf.get_pickup_coords().to_vec()),
             PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
                 "get_pickup_coords is only available on the grid backend",
+            )),
+        }
+    }
+
+    /// Analyze level difficulty. Returns a dict of raw metrics.
+    /// `ship_x, ship_y` = spawn position. Only available on grid backend.
+    fn analyze_level_difficulty<'py>(&self, py: Python<'py>, ship_x: f32, ship_y: f32,
+                                      map_lines: Vec<(f32, f32, f32, f32)>) -> PyResult<Bound<'py, PyDict>> {
+        match &self.kind {
+            PathfinderKind::Spatial(pf) => {
+                let m = pf.analyze_difficulty(ship_x, ship_y, &map_lines);
+                let d = PyDict::new(py);
+                d.set_item("num_walls", m.num_walls)?;
+                d.set_item("wall_density", m.wall_density)?;
+                d.set_item("num_pickups", m.num_pickups)?;
+                d.set_item("pickup_spread", m.pickup_spread)?;
+                d.set_item("total_route_length", m.total_route_length)?;
+                d.set_item("detour_ratio", m.detour_ratio)?;
+                d.set_item("bottleneck_clearance", m.bottleneck_clearance)?;
+                d.set_item("upward_travel", m.upward_travel)?;
+                d.set_item("upward_travel_tight", m.upward_travel_tight)?;
+                d.set_item("maneuver_count", m.maneuver_count)?;
+                d.set_item("worst_maneuver_angle", m.worst_maneuver_angle)?;
+                d.set_item("map_width", m.map_width)?;
+                d.set_item("map_height", m.map_height)?;
+                Ok(d)
+            }
+            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
+                "analyze_level_difficulty is only available on the grid backend",
             )),
         }
     }

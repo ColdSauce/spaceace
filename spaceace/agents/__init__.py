@@ -21,5 +21,6 @@ from spaceace.agents.mcts import agent as _mcts_agent  # noqa: E402,F401
 from spaceace.agents.ppo import agent as _ppo_agent  # noqa: E402,F401
 from spaceace.agents.alphazero import agent as _az_agent  # noqa: E402,F401
 from spaceace.agents.hrl import agent as _hrl_agent  # noqa: E402,F401
+from spaceace.agents.beam import agent as _beam_agent  # noqa: E402,F401
 
 __all__ = ["AGENT_REGISTRY", "BaseAgent", "register_agent", "load_agent_module"]

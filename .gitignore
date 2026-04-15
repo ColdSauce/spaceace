@@ -6,3 +6,5 @@ models/
 tensorboard_logs/
 *.egg-info/
 .venv/
+dashboard/*.db
+dashboard/job_logs/

@@ -18,11 +18,16 @@ dependencies = [
     "tensorboard>=2.10.0",
     "pygame>=2.5.0",
     "onnx>=1.14.0",
+    "flask>=3.0.0",
 ]
 
 [tool.maturin]
 features = ["extension-module"]
 module-name = "spaceace_rl"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.uv]
 dev-dependencies = [

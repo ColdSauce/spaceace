@@ -9,50 +9,22 @@ import numpy as np
 
 from spaceace.strategies.base import ObservationBuilder, Pathfinder
 
-# 8 raycast directions relative to ship heading. Must match Rust BASE_DIRS.
-BASE_DIRS: list[tuple[float, float]] = [
-    (0.0, -1.0),
-    (0.707, -0.707),
-    (1.0, 0.0),
-    (0.707, 0.707),
-    (0.0, 1.0),
-    (-0.707, 0.707),
-    (-1.0, 0.0),
-    (-0.707, -0.707),
-]
 
-
-def compute_min_tti(obs: np.ndarray) -> float:
-    """Minimum time-to-impact across 8 raycast directions. Infinity if nothing closes."""
-    ship_vx, ship_vy = float(obs[2]), float(obs[3])
-    ship_rot = float(obs[4])
-    wall_distances = obs[8:16]
-
-    cos_r = math.cos(ship_rot)
-    sin_r = math.sin(ship_rot)
-    min_tti = float("inf")
-    for i, (dx, dy) in enumerate(BASE_DIRS):
-        world_dx = dx * cos_r - dy * sin_r
-        world_dy = dx * sin_r + dy * cos_r
-        v_toward = ship_vx * world_dx + ship_vy * world_dy
-        if v_toward > 1.0:
-            tti = float(wall_distances[i]) / v_toward
-            if tti < min_tti:
-                min_tti = tti
-    return min_tti
-
-
-class RawObs19(ObservationBuilder):
-    """No-op passthrough of the 19-dim Rust observation."""
+class RawObs(ObservationBuilder):
+    """No-op passthrough of the 20-dim Rust observation (includes min_tti at index 19)."""
 
     def __init__(self) -> None:
-        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(19,), dtype=np.float32)
+        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32)
 
     def reset(self, raw_obs: np.ndarray, info: dict, env) -> np.ndarray:
         return raw_obs.astype(np.float32, copy=False)
 
     def build(self, raw_obs: np.ndarray, info: dict, env) -> np.ndarray:
         return raw_obs.astype(np.float32, copy=False)
+
+
+# Keep old name as alias for backwards compatibility with strategy registry.
+RawObs19 = RawObs
 
 
 class PathAugmentedObs23(ObservationBuilder):
@@ -63,10 +35,11 @@ class PathAugmentedObs23(ObservationBuilder):
     """
 
     def __init__(self, pathfinder: Pathfinder, max_steps: int) -> None:
-        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(23,), dtype=np.float32)
+        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
         self._pathfinder = pathfinder
         self._max_steps = max_steps
         self._steps = 0
+        self._buf = np.empty(24, dtype=np.float32)
 
     def reset(self, raw_obs: np.ndarray, info: dict, env) -> np.ndarray:
         self._steps = 0
@@ -81,41 +54,41 @@ class PathAugmentedObs23(ObservationBuilder):
         path_dist, dir_x, dir_y = self._pathfinder.nearest_pickup_info(
             float(obs[0]), float(obs[1]), collected
         )
-        min_tti = compute_min_tti(obs)
+        min_tti = float(obs[19])  # Computed in Rust build_observation
 
-        ship_vx, ship_vy, ship_rot = obs[2], obs[3], obs[4]
-        filtered = np.concatenate(
-            [
-                obs[2:5],    # vx, vy, rot
-                obs[7:8],    # pickup distance (euclidean)
-                obs[8:16],   # 8 wall distances
-                obs[16:19],  # pickups_remaining, norm_x, norm_y
-            ]
-        )
+        ship_vx = float(obs[2])
+        ship_vy = float(obs[3])
+        ship_rot = float(obs[4])
+        sin_rot = math.sin(ship_rot)
+        cos_rot = math.cos(ship_rot)
 
-        path_dist_norm = min(path_dist / 5000.0, 1.0)
-        speed = math.sqrt(float(ship_vx) ** 2 + float(ship_vy) ** 2)
+        buf = self._buf
+        # Filtered raw features (16 dims)
+        buf[0] = obs[2] / 300.0       # vx
+        buf[1] = obs[3] / 300.0       # vy
+        buf[2] = sin_rot              # rot sin
+        buf[3] = cos_rot              # rot cos
+        buf[4] = obs[7] / 1000.0      # pickup distance
+        buf[5:13] = obs[8:16]         # wall distances (scaled below)
+        buf[5:13] /= 1000.0
+        buf[13] = obs[16] / 10.0      # pickups remaining
+        buf[14] = obs[17]             # norm_x
+        buf[15] = obs[18]             # norm_y
+
+        # Derived features (8 dims)
+        speed = math.sqrt(ship_vx ** 2 + ship_vy ** 2)
         if speed > 1e-6 and (abs(dir_x) > 1e-6 or abs(dir_y) > 1e-6):
-            speed_toward = (float(ship_vx) * dir_x + float(ship_vy) * dir_y) / speed
+            speed_toward = (ship_vx * dir_x + ship_vy * dir_y) / speed
         else:
             speed_toward = 0.0
-        heading_x = math.sin(float(ship_rot))
-        heading_y = -math.cos(float(ship_rot))
-        heading_alignment = heading_x * dir_x + heading_y * dir_y
-        min_tti_norm = min(min_tti, 2.0) / 2.0
-        time_remaining = 1.0 - self._steps / self._max_steps
 
-        extra = np.array(
-            [
-                path_dist_norm,
-                dir_x,
-                dir_y,
-                speed,
-                speed_toward,
-                heading_alignment,
-                min_tti_norm,
-                time_remaining,
-            ],
-            dtype=np.float32,
-        )
-        return np.concatenate([filtered, extra]).astype(np.float32, copy=False)
+        buf[16] = min(path_dist / 5000.0, 1.0)
+        buf[17] = dir_x
+        buf[18] = dir_y
+        buf[19] = speed
+        buf[20] = speed_toward
+        buf[21] = sin_rot * dir_x + (-cos_rot) * dir_y  # heading alignment
+        buf[22] = min(min_tti, 2.0) / 2.0
+        buf[23] = max(0.0, 1.0 - self._steps / 5000.0)
+
+        return buf.copy()

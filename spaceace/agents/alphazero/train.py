@@ -52,17 +52,22 @@ def parse_args():
     return p.parse_args()
 
 
-# Generated curriculum levels (3000-3049) with per-stage settings
+# Generated curriculum levels (3000-3164) with per-stage settings
+# 25 levels per strategy + 10 transitional levels between each pair
 CURRICULUM_STAGES = [
     # (level_range, max_steps, num_sims_multiplier, description)
-    (range(3000, 3010), 500, 5, "simple"),        # 5x sims to bootstrap wins
-    (range(3010, 3020), 1500, 2, "room"),          # 2x sims
-    (range(3020, 3030), 2000, 1, "maze"),          # normal sims
-    (range(3030, 3040), 3000, 1, "cave"),
-    (range(3040, 3050), 3000, 1, "gauntlet"),
+    (range(3000, 3025), 500, 5, "simple"),
+    (range(3025, 3035), 1000, 3, "simple_to_room"),
+    (range(3035, 3060), 1500, 2, "room"),
+    (range(3060, 3070), 1500, 2, "room_to_maze"),
+    (range(3070, 3095), 2000, 1, "maze"),
+    (range(3095, 3105), 2000, 1, "maze_to_cave"),
+    (range(3105, 3130), 3000, 1, "cave"),
+    (range(3130, 3140), 3000, 1, "cave_to_gauntlet"),
+    (range(3140, 3165), 3000, 1, "gauntlet"),
 ]
 
-DEFAULT_CURRICULUM = list(range(3000, 3050))
+DEFAULT_CURRICULUM = list(range(3000, 3165))
 
 
 def get_level_settings(level: int, base_max_steps: int = 3000, base_sims: int = 400) -> tuple[int, int]:
@@ -76,17 +81,23 @@ def get_level_settings(level: int, base_max_steps: int = 3000, base_sims: int = 
 def generate_curriculum_maps():
     """Generate curriculum maps using generate_maps.py."""
     configs = [
-        ("simple", 3000, 100),
-        ("room", 3010, 200),
-        ("maze", 3020, 300),
-        ("cave", 3030, 400),
-        ("gauntlet", 3040, 500),
+        # (strategy, start_level, count, seed)
+        ("simple",           3000, 25, 100),
+        ("simple_to_room",   3025, 10, 150),
+        ("room",             3035, 25, 200),
+        ("room_to_maze",     3060, 10, 250),
+        ("maze",             3070, 25, 300),
+        ("maze_to_cave",     3095, 10, 350),
+        ("cave",             3105, 25, 400),
+        ("cave_to_gauntlet", 3130, 10, 450),
+        ("gauntlet",         3140, 25, 500),
     ]
-    for strategy, start_level, seed in configs:
-        print(f"Generating {strategy} maps (levels {start_level}-{start_level+9})...")
+    for strategy, start_level, count, seed in configs:
+        end_level = start_level + count - 1
+        print(f"Generating {strategy} maps (levels {start_level}-{end_level})...")
         subprocess.run([
             "uv", "run", "python", "generate_maps.py",
-            "--count", "10", "--strategy", strategy,
+            "--count", str(count), "--strategy", strategy,
             "--start-level", str(start_level), "--seed", str(seed), "--merge",
         ], check=True)
     print()
@@ -100,7 +111,12 @@ def train_network(
     batch_size: int = 256,
 ) -> dict:
     """Train the network on collected examples. Returns loss metrics."""
-    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     model.to(device)
     model.train()
 

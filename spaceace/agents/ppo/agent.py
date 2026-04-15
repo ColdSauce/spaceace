@@ -8,9 +8,8 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from spaceace.agents.base import BaseAgent, register_agent
-from spaceace.core.env import SpaceAceDirectEnv
 from spaceace.core.gym_wrapper import SpaceAceGymWrapper
-from spaceace.agents.ppo.training_env import SpaceAceTrainingEnv
+from spaceace.training.envs import StrategyWrapper, _build_strategies
 
 
 @register_agent("ppo")
@@ -39,10 +38,10 @@ class PPOAgent(BaseAgent):
             )
 
         self._base_env = SpaceAceGymWrapper(level=level, max_steps=max_steps)
-        # action_repeat=1 for inference — renderer handles frame-by-frame display
-        self._training_env = SpaceAceTrainingEnv(self._base_env, level=level, max_steps=max_steps,
-                                                 action_repeat=1)
-        self._vec_env = DummyVecEnv([lambda: self._training_env])
+        obs_strategy, reward_strategy, pf = _build_strategies(level, max_steps, "path_augmented", "dense_shaped")
+        # action_repeat must match training (default 5) for correct policy behavior
+        self._wrapped_env = StrategyWrapper(self._base_env, obs_strategy, reward_strategy, action_repeat=5, pathfinder=pf)
+        self._vec_env = DummyVecEnv([lambda: self._wrapped_env])
 
         norm_path = os.path.join(os.path.dirname(model_path), "vec_normalize.pkl")
         if os.path.exists(norm_path):
@@ -50,7 +49,7 @@ class PPOAgent(BaseAgent):
             self._vec_env.training = False
             self._vec_env.norm_reward = False
         else:
-            self._vec_env = VecNormalize(self._vec_env, norm_obs=True, norm_reward=False, training=False)
+            self._vec_env = VecNormalize(self._vec_env, norm_obs=False, norm_reward=False, training=False)
 
         self._model = PPO.load(model_path)
         self._obs = None
@@ -63,7 +62,7 @@ class PPOAgent(BaseAgent):
         self._obs, reward, dones, infos = self._vec_env.step(action)
         return action[0], float(reward[0]), bool(dones[0]), False, infos[0]
 
-    def get_raw_env(self) -> SpaceAceDirectEnv:
+    def get_raw_env(self):
         return self._base_env.env
 
     def close(self) -> None:

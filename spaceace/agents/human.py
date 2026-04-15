@@ -15,6 +15,7 @@ class HumanAgent(BaseAgent):
 
     def setup(self, level: int, max_steps: int, **kwargs) -> None:
         self._env = SpaceAceDirectEnv(level=level, max_steps=max_steps)
+
     def reset(self) -> None:
         self._env.reset()
 

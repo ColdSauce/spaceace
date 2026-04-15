@@ -12,5 +12,5 @@
 pub mod grid;
 pub mod momentum;
 
-pub use grid::PathfinderGrid;
+pub use grid::{PathfinderGrid, DifficultyMetrics};
 pub use momentum::{MomentumPathfinder, PathfinderKind};

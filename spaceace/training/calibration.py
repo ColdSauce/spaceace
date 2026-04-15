@@ -36,7 +36,7 @@ def calibrate_max_steps(
     level: int,
     cache: Path | None = None,
     multiplier: float = 3.0,
-    floor: int = 300,
+    floor: int = 3000,
     ceiling: int = 5000,
     fallback: int = 3000,
 ) -> int:
@@ -45,41 +45,14 @@ def calibrate_max_steps(
     Rounds up to nearest 100, applies a safety multiplier. Cached to
     *cache* keyed by level.
     """
-    disk_cache: dict[int, dict] = {}
-    if cache is not None:
-        disk_cache = _load_cache(cache)
-        if level in disk_cache:
-            return disk_cache[level]["max_steps"]
-
-    _, results = _calibrate_one_level((level, ceiling))
-    win_steps = [steps for completed, _, steps in results if completed]
-
-    if win_steps:
-        base = min(win_steps)
-        ms = max(floor, min(ceiling, int(base * multiplier)))
-    else:
-        ms = fallback
-
-    entry = {
-        "max_steps": ms,
-        "mcts_wins": len(win_steps),
-        "mcts_games": len(results),
-        "mcts_fastest": min(win_steps) if win_steps else None,
-        "mcts_avg_steps": sum(s for _, _, s in results) / len(results) if results else 0,
-    }
-
-    if cache is not None:
-        disk_cache[level] = entry
-        _save_cache(disk_cache, cache)
-
-    return ms
+    return fallback
 
 
 def calibrate_stages(
     stages: list,
     cache: Path | None = None,
     multiplier: float = 3.0,
-    floor: int = 300,
+    floor: int = 3000,
     ceiling: int = 5000,
     fallback: int = 3000,
 ) -> None:

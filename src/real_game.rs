@@ -119,28 +119,31 @@ impl RealSpaceAceGame {
         Ok(())
     }
 
-    pub fn reset(&mut self) {
-        
-        // Use proper spawn logic matching JavaScript implementation
-        let (spawn_x, spawn_y) = if let Some(ref map_data) = self.map_data {
-            // JavaScript logic: use startIndex to get spawn vertex, then place ship slightly above
+    /// Compute spawn position from map data. Used by reset() and get_map_bounds().
+    fn compute_spawn(&self) -> (f32, f32) {
+        if let Some(ref map_data) = self.map_data {
             if map_data.start_index < map_data.vertices.len() {
-                let spawn_vertex = map_data.vertices[map_data.start_index];
-                let spawn_x = spawn_vertex.0;
-                let spawn_y = spawn_vertex.1 - 100.0; // place slightly above the exact spot
-                (spawn_x, spawn_y)
+                let v = map_data.vertices[map_data.start_index];
+                (v.0, v.1 - 100.0)
             } else {
-                // Fallback: center of map bounds + 200 offset from bottom
-                let bounds = self.get_map_bounds();
-                let fallback_x = (bounds.min_x + bounds.max_x) * 0.5;
-                let fallback_y = bounds.min_y + 200.0;
-                (fallback_x, fallback_y)
+                // Fallback: center of vertex-derived bounds, offset 200 from min_y.
+                // Compute from vertices directly (not get_map_bounds) to avoid recursion.
+                let (mut vmin_x, mut vmax_x) = (f32::MAX, f32::MIN);
+                let mut vmin_y = f32::MAX;
+                for &(x, y) in &map_data.vertices {
+                    if x < vmin_x { vmin_x = x; }
+                    if x > vmax_x { vmax_x = x; }
+                    if y < vmin_y { vmin_y = y; }
+                }
+                ((vmin_x + vmax_x) * 0.5, vmin_y + 200.0)
             }
         } else {
-            // No map data available - use center position
             (600.0, 400.0)
-        };
-        
+        }
+    }
+
+    pub fn reset(&mut self) {
+        let (spawn_x, spawn_y) = self.compute_spawn();
         self.physics.reset(spawn_x, spawn_y);
         
         // Reset pickups
@@ -303,6 +306,19 @@ impl RealSpaceAceGame {
                 if y < min_y { min_y = y; }
                 if y > max_y { max_y = y; }
             }
+            // Also include pickup positions so the pathfinder grid covers them
+            for pickup in &self.pickups {
+                if pickup.x < min_x { min_x = pickup.x; }
+                if pickup.x > max_x { max_x = pickup.x; }
+                if pickup.y < min_y { min_y = pickup.y; }
+                if pickup.y > max_y { max_y = pickup.y; }
+            }
+            // Also include spawn point so the pathfinder can route from it.
+            let (spawn_x, spawn_y) = self.compute_spawn();
+            if spawn_x < min_x { min_x = spawn_x; }
+            if spawn_x > max_x { max_x = spawn_x; }
+            if spawn_y < min_y { min_y = spawn_y; }
+            if spawn_y > max_y { max_y = spawn_y; }
             // Add margin for ship size
             let margin = 50.0;
             RealMapBounds {

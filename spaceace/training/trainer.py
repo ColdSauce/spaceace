@@ -14,7 +14,7 @@ class LevelStage:
     levels: list[int]
     max_episode_steps: int | None = None
     advance_win_rate: float = 0.7
-    min_steps: int = 200_000
+    min_steps: int = 50_000
 
 
 @dataclass
@@ -43,7 +43,7 @@ class TrainingConfig:
 
     level: int = 0
     total_steps: int = 500_000
-    n_envs: int = 1
+    n_envs: int = 0  # 0 = auto-detect (cpu_count)
     learning_rate: float = 3e-4
     max_episode_steps: int = 3000
     action_repeat: int = 5
@@ -52,6 +52,7 @@ class TrainingConfig:
     obs: str = "path_augmented"
     reward: str = "dense_shaped"
     actions: str = "discrete6"
+    pathfinder_backend: str = "grid"
 
     model_dir: Path = field(default_factory=lambda: Path("./models"))
     tensorboard_dir: Path = field(default_factory=lambda: Path("./tensorboard_logs"))

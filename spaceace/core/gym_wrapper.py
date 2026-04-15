@@ -18,7 +18,7 @@ class SpaceAceGymWrapper(gym.Env):
 
         self.action_space = gym.spaces.MultiDiscrete([2, 2, 2])
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(19,), dtype=np.float32
+            low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32
         )
         self.metadata = {'render_modes': ['ascii', 'detailed'], 'render_fps': 60}
 

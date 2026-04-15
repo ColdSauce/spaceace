@@ -12,7 +12,7 @@ class SpaceAceDirectEnv:
     def __init__(self, level: int = 1, max_steps: int = 3000):
         self.level = level
         self.max_steps = max_steps
-        self.observation_space_size = 19
+        self.observation_space_size = 20
         self.action_space_size = 3
         self._game = spaceace_rl.PyGameInstance(level, max_steps)
 

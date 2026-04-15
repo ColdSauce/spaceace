@@ -113,28 +113,12 @@ class WaypointPilotEnv(gym.Wrapper):
         )
 
     def _compute_min_tti(self, obs: np.ndarray) -> float:
-        """Compute minimum time-to-impact across 8 raycast directions."""
-        ship_vx, ship_vy = float(obs[2]), float(obs[3])
-        ship_rot = float(obs[4])
-        wall_distances = obs[8:16]
-
-        cos_r = math.cos(ship_rot)
-        sin_r = math.sin(ship_rot)
-        min_tti = float('inf')
-
-        for i, (dx, dy) in enumerate(_BASE_DIRS):
-            world_dx = dx * cos_r - dy * sin_r
-            world_dy = dx * sin_r + dy * cos_r
-            v_toward = ship_vx * world_dx + ship_vy * world_dy
-            if v_toward > 1.0:
-                tti = float(wall_distances[i]) / v_toward
-                if tti < min_tti:
-                    min_tti = tti
-        return min_tti
+        """Minimum time-to-impact — precomputed in Rust at obs[19]."""
+        return float(obs[19])
 
     def _augment_obs(self, obs: np.ndarray, path_dist: float, dir_x: float,
                      dir_y: float, min_tti: float) -> np.ndarray:
-        """Filter raw 19-dim obs to remove absolute positions, add 9 derived features → 24-dim."""
+        """Filter raw 20-dim obs to remove absolute positions, add 9 derived features → 24-dim."""
         ship_vx, ship_vy = obs[2], obs[3]
         ship_rot = float(obs[4])
 

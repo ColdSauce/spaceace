@@ -8,18 +8,7 @@ import spaceace_rl
 
 from spaceace.agents.base import BaseAgent, register_agent
 from spaceace.core.env import SpaceAceDirectEnv
-
-# Action lookup (must match Rust ACTIONS order)
-ALL_ACTIONS = [
-    np.array([0, 0, 0], dtype=np.int32),  # coast
-    np.array([0, 0, 1], dtype=np.int32),  # thrust
-    np.array([1, 0, 0], dtype=np.int32),  # rotate left
-    np.array([1, 0, 1], dtype=np.int32),  # rotate left + thrust
-    np.array([0, 1, 0], dtype=np.int32),  # rotate right
-    np.array([0, 1, 1], dtype=np.int32),  # rotate right + thrust
-]
-
-ACTION_NAMES = ["COAST", "THRUST", "LEFT", "LEFT+THR", "RIGHT", "RIGHT+THR"]
+from spaceace.strategies.actions import ALL_ACTIONS, ACTION_NAMES
 
 
 @register_agent("mcts")

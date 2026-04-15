@@ -26,6 +26,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-simulations", type=int, default=200)
     p.add_argument("--exploration", type=float, default=1.41)
     p.add_argument("--momentum-pathfinder", action="store_true")
+    p.add_argument("--beam-width", type=int, default=1000,
+                   help="Beam width for beam search agent (default 1000)")
+    p.add_argument("--step-penalty", type=float, default=0.01,
+                   help="Step penalty for beam search scoring (default 0.01)")
+    p.add_argument("--no-optimize", action="store_true",
+                   help="Skip trajectory optimization phase for beam search")
+    p.add_argument("--action-repeat", type=int, default=3,
+                   help="Action repeat frames for beam/MCTS (default 3)")
+    p.add_argument("--screenshots", type=int, nargs="?", const=30, default=0,
+                   metavar="N", help="Save screenshots every N frames (default 30 if flag given). "
+                   "Also captures on crash/completion. Press S for manual capture.")
+    p.add_argument("--screenshot-dir", type=str, default="screenshots",
+                   help="Directory for screenshots (default: screenshots/)")
     return p.parse_args()
 
 
@@ -45,18 +58,29 @@ def main() -> None:
         "num_simulations": args.num_simulations,
         "exploration_constant": args.exploration,
         "momentum_pathfinder": args.momentum_pathfinder,
+        "beam_width": args.beam_width,
+        "step_penalty": args.step_penalty,
+        "action_repeat": args.action_repeat,
+        "optimize": not args.no_optimize,
     }
     if args.model:
         kwargs["model_path"] = args.model
 
     agent.setup(level=args.level, max_steps=args.max_steps, **kwargs)
 
-    renderer = None if args.headless else VisualRenderer(width=1200, height=800)
+    renderer = None if args.headless else VisualRenderer(
+        width=1200, height=800, screenshot_dir=args.screenshot_dir,
+    )
+    if renderer and args.screenshots:
+        renderer.enable_auto_screenshots(args.screenshots)
+        print(f"Screenshots enabled: every {args.screenshots} frames → {args.screenshot_dir}/")
     print(f"Running {args.agent} agent on level {args.level} for {args.episodes} episodes")
 
     try:
         for episode in range(args.episodes):
             agent.reset()
+            if renderer:
+                renderer.set_episode(episode)
             total_reward = 0.0
             step_count = 0
             while True:
@@ -89,6 +113,8 @@ def main() -> None:
                         else "TRUNCATED"
                     )
                     print(f"  Episode {episode+1}: {status} | steps={step_count} reward={total_reward:.1f}")
+                    if renderer and args.screenshots:
+                        renderer.save_screenshot(status.lower())
                     if renderer:
                         time.sleep(2)
                     break

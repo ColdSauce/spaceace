@@ -9,8 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
-from stable_baselines3.common.vec_env import VecEnv, VecNormalize
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv, VecNormalize
 
 from spaceace.training.callbacks import CurriculumCallback, MetricsCallback
 from spaceace.training.envs import make_random_level_env, make_vec_env
@@ -31,6 +31,19 @@ DEFAULT_PPO_HPARAMS = dict(
     policy_kwargs={"net_arch": [256, 256]},
     verbose=1,
 )
+
+
+class _LatestModelCallback(BaseCallback):
+    """Periodically overwrite a single model file with the current weights."""
+    def __init__(self, save_freq: int, save_path: str):
+        super().__init__()
+        self.save_freq = save_freq
+        self.save_path = save_path
+
+    def _on_step(self) -> bool:
+        if self.n_calls % self.save_freq == 0:
+            self.model.save(self.save_path)
+        return True
 
 
 class Sb3Trainer(Trainer):
@@ -66,6 +79,7 @@ class Sb3Trainer(Trainer):
             reward=config.reward,
             action_repeat=config.action_repeat,
             subprocess=subprocess,
+            pathfinder_backend=config.pathfinder_backend,
         )
 
     def fit(self, config: TrainingConfig) -> Path:
@@ -89,11 +103,11 @@ class Sb3Trainer(Trainer):
 
         train_env = self._make_env(config, n_envs, subprocess=True)
         train_env = VecNormalize(
-            train_env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0
+            train_env, norm_obs=False, norm_reward=True, clip_obs=10.0, clip_reward=10.0
         )
 
         eval_env = self._make_env(config, 1, subprocess=False)
-        eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+        eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False, clip_obs=10.0)
 
         if config.resume_from:
             print(f"Resuming from: {config.resume_from}")
@@ -182,13 +196,13 @@ class Sb3Trainer(Trainer):
             first.levels, first.max_episode_steps, n_envs, config, subprocess=True,
         )
         train_env = VecNormalize(
-            train_env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0,
+            train_env, norm_obs=False, norm_reward=True, clip_obs=10.0, clip_reward=10.0,
         )
 
         eval_env = self._make_curriculum_vec_env(
             first.levels, first.max_episode_steps, 1, config, subprocess=False,
         )
-        eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+        eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False, clip_obs=10.0)
 
         if config.resume_from:
             print(f"Resuming from: {config.resume_from}")
@@ -213,6 +227,7 @@ class Sb3Trainer(Trainer):
             reward=config.reward,
             action_repeat=config.action_repeat,
             n_envs=n_envs,
+            pathfinder_backend=config.pathfinder_backend,
         )
 
         callbacks = [
@@ -223,6 +238,10 @@ class Sb3Trainer(Trainer):
                 eval_freq=config.eval_freq,
                 n_eval_episodes=config.eval_episodes,
                 deterministic=True,
+            ),
+            _LatestModelCallback(
+                save_freq=config.eval_freq,
+                save_path=str(save_dir / "latest_model"),
             ),
             MetricsCallback(),
             curriculum_cb,
@@ -252,12 +271,12 @@ class Sb3Trainer(Trainer):
 
     @staticmethod
     def _make_curriculum_vec_env(levels, max_steps, n_envs, config, subprocess):
-        from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
-
         thunks = [
-            make_random_level_env(levels, max_steps, config.obs, config.reward, config.action_repeat)
+            make_random_level_env(levels, max_steps, config.obs, config.reward, config.action_repeat, config.pathfinder_backend)
             for _ in range(n_envs)
         ]
+        # CurriculumCallback uses env_method("set_curriculum", ...) which works
+        # with both SubprocVecEnv and DummyVecEnv via _CurriculumMonitor.
         if subprocess and n_envs > 1:
             return SubprocVecEnv(thunks, start_method="fork")
         return DummyVecEnv(thunks)

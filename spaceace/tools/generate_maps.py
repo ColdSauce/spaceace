@@ -488,10 +488,10 @@ class MazeGenerator:
         rng = self.rng
         td = self.td
 
-        cols = int(3 + td * 4)  # 3-7
-        rows = int(3 + td * 3)  # 3-6
-        cell_w = int(200 - td * 60)  # 200-140
-        cell_h = int(200 - td * 60)
+        cols = int(3 + td * 6)  # 3-9
+        rows = int(3 + td * 5)  # 3-8
+        cell_w = 200
+        cell_h = 200
         num_pickups = max(1, int(1 + td * 7))
         wall_removal = 0.3 * (1 - td)  # 30%-0%
 
@@ -931,13 +931,475 @@ class SimpleGenerator:
 
 
 # ---------------------------------------------------------------------------
+# Transition generators: bridge the geometry gap between adjacent strategies
+# ---------------------------------------------------------------------------
+
+class SimpleToRoomGenerator:
+    """Transition from open rectangle to room-and-corridor.
+
+    Progressively adds internal walls that divide the rectangle, creating
+    doorways/openings the agent must learn to navigate through.
+    """
+    name = "simple_to_room"
+
+    def __init__(self, rng: random.Random, target_difficulty: float):
+        self.rng = rng
+        self.td = target_difficulty
+
+    def generate(self) -> GeneratedMap:
+        rng = self.rng
+        td = self.td
+
+        room_w = 600 + rng.randint(0, 200)
+        room_h = 500 + rng.randint(0, 200)
+        margin = 50.0
+
+        vertices = []
+        lines = []
+        _add_rect_walls(vertices, lines, margin, margin, room_w, room_h)
+
+        # Spawn near center-left
+        cx = margin + room_w * 0.3
+        cy = margin + room_h * 0.5
+        spawn_idx = len(vertices)
+        vertices.append((cx, cy + 50))
+
+        # Add internal wall(s) that divide the space
+        # Doorway width shrinks from very wide (barely a wall) to corridor-like
+        doorway_width = 200 - td * 120  # 200 -> 80
+
+        # Vertical divider wall at ~60% across the room
+        wall_x = margin + room_w * 0.6
+        wall_top = margin
+        wall_bottom = margin + room_h
+
+        # Place doorway in the middle of the wall
+        door_center_y = margin + room_h * (0.4 + rng.random() * 0.2)
+        door_half = doorway_width / 2
+
+        # Top segment of divider (above doorway)
+        if door_center_y - door_half > wall_top + 10:
+            b = len(vertices)
+            vertices.append((wall_x, wall_top))
+            vertices.append((wall_x, door_center_y - door_half))
+            lines.append((b, b + 1))
+
+        # Bottom segment of divider (below doorway)
+        if door_center_y + door_half < wall_bottom - 10:
+            b = len(vertices)
+            vertices.append((wall_x, door_center_y + door_half))
+            vertices.append((wall_x, wall_bottom))
+            lines.append((b, b + 1))
+
+        # At higher td, add a second divider creating a third section
+        if td > 0.5:
+            wall_x2 = margin + room_w * 0.3
+            door_center_y2 = margin + room_h * (0.3 + rng.random() * 0.4)
+            doorway_w2 = 200 - (td - 0.5) * 2 * 100  # 200 -> 100
+            door_half2 = doorway_w2 / 2
+
+            if door_center_y2 - door_half2 > wall_top + 10:
+                b = len(vertices)
+                vertices.append((wall_x2, wall_top))
+                vertices.append((wall_x2, door_center_y2 - door_half2))
+                lines.append((b, b + 1))
+
+            if door_center_y2 + door_half2 < wall_bottom - 10:
+                b = len(vertices)
+                vertices.append((wall_x2, door_center_y2 + door_half2))
+                vertices.append((wall_x2, wall_bottom))
+                lines.append((b, b + 1))
+
+        # Place pickup on the far side of the first divider
+        px = margin + room_w * (0.75 + rng.random() * 0.15)
+        py = margin + room_h * (0.3 + rng.random() * 0.4)
+        pickup_idx = len(vertices)
+        vertices.append((px, py))
+
+        return GeneratedMap(
+            vertices=vertices, lines=lines, pickups=[pickup_idx],
+            start_index=spawn_idx,
+            bounding_width=room_w + 2 * margin,
+            bounding_height=room_h + 2 * margin,
+            strategy_name=self.name,
+        )
+
+
+class RoomToMazeGenerator:
+    """Transition from room-and-corridor to maze.
+
+    Uses the RoomCorridorGenerator but with parameters that interpolate
+    toward maze-like geometry: more rooms, smaller rooms, tighter corridors.
+    """
+    name = "room_to_maze"
+
+    def __init__(self, rng: random.Random, target_difficulty: float):
+        self.rng = rng
+        self.td = target_difficulty
+
+    def generate(self) -> GeneratedMap:
+        # Interpolate parameters from easy-room toward easy-maze
+        td = self.td
+
+        # Override RoomCorridorGenerator parameters to produce transitional maps
+        gen = RoomCorridorGenerator(self.rng, 0.0)  # base difficulty=0
+
+        # Override the scaling: rooms shrink, count increases, corridors tighten
+        gen.td = td  # not used directly since we override in generate()
+
+        rng = self.rng
+
+        num_rooms = int(3 + td * 3)           # 3 -> 6
+        corridor_width = int(160 - td * 30)   # 160 -> 130
+        room_min = int(200 - td * 60)         # 200 -> 140
+        room_max = int(350 - td * 100)        # 350 -> 250
+        num_pickups = max(1, int(1 + td * 3)) # 1 -> 4
+
+        rooms = []
+        for _ in range(num_rooms * 20):
+            if len(rooms) >= num_rooms:
+                break
+            w = rng.randint(room_min, room_max)
+            h = rng.randint(room_min, room_max)
+            x = rng.randint(100, 1500)
+            y = rng.randint(200, 1500)
+            margin = corridor_width + 40
+            ok = True
+            for rx, ry, rw, rh in rooms:
+                if not (x + w + margin < rx or rx + rw + margin < x or
+                        y + h + margin < ry or ry + rh + margin < y):
+                    ok = False
+                    break
+            if ok:
+                rooms.append((x, y, w, h))
+
+        if len(rooms) < 2:
+            rooms = [(100, 300, 250, 250), (500, 300, 250, 250)]
+
+        centers = [(x + w / 2, y + h / 2) for x, y, w, h in rooms]
+        edges = gen._mst(centers)
+
+        GRID = 10.0
+        all_coords = []
+        for x, y, w, h in rooms:
+            all_coords.extend([(x, y), (x + w, y + h)])
+        for i, j in edges:
+            all_coords.extend([centers[i], centers[j]])
+        xs = [c[0] for c in all_coords]
+        ys = [c[1] for c in all_coords]
+        gx0 = min(xs) - corridor_width - 50
+        gy0 = min(ys) - 200
+        gx1 = max(xs) + corridor_width + 50
+        gy1 = max(ys) + corridor_width + 50
+        gcols = int((gx1 - gx0) / GRID) + 2
+        grows = int((gy1 - gy0) / GRID) + 2
+
+        open_cells = set()
+
+        def carve_rect(rx, ry, rw, rh):
+            c0 = int((rx - gx0) / GRID)
+            r0 = int((ry - gy0) / GRID)
+            c1 = int((rx + rw - gx0) / GRID)
+            r1 = int((ry + rh - gy0) / GRID)
+            for rr in range(r0, r1 + 1):
+                for cc in range(c0, c1 + 1):
+                    if 0 <= rr < grows and 0 <= cc < gcols:
+                        open_cells.add((rr, cc))
+
+        for x, y, w, h in rooms:
+            carve_rect(x, y, w, h)
+
+        hw = corridor_width / 2
+        for i, j in edges:
+            cx1, cy1 = centers[i]
+            cx2, cy2 = centers[j]
+            mid_x, mid_y = cx2, cy1
+            x_lo, x_hi = min(cx1, mid_x), max(cx1, mid_x)
+            carve_rect(x_lo - hw, mid_y - hw, x_hi - x_lo + 2 * hw, corridor_width)
+            y_lo, y_hi = min(mid_y, cy2), max(mid_y, cy2)
+            carve_rect(mid_x - hw, y_lo - hw, corridor_width, y_hi - y_lo + 2 * hw)
+
+        vertices = []
+        lines = []
+        edge_set = set()
+
+        def add_wall_seg(wx1, wy1, wx2, wy2):
+            key = (wx1, wy1, wx2, wy2)
+            if key in edge_set:
+                return
+            edge_set.add(key)
+            b = len(vertices)
+            vertices.append((wx1, wy1))
+            vertices.append((wx2, wy2))
+            lines.append((b, b + 1))
+
+        for (r, c) in open_cells:
+            wx = gx0 + c * GRID
+            wy = gy0 + r * GRID
+            if (r - 1, c) not in open_cells:
+                add_wall_seg(wx, wy, wx + GRID, wy)
+            if (r + 1, c) not in open_cells:
+                add_wall_seg(wx, wy + GRID, wx + GRID, wy + GRID)
+            if (r, c - 1) not in open_cells:
+                add_wall_seg(wx, wy, wx, wy + GRID)
+            if (r, c + 1) not in open_cells:
+                add_wall_seg(wx + GRID, wy, wx + GRID, wy + GRID)
+
+        vertices, lines = _merge_collinear_walls(vertices, lines)
+
+        sx, sy, sw, sh = rooms[0]
+        spawn_idx = len(vertices)
+        vertices.append((sx + sw / 2, sy + sh - 50))
+
+        pickup_idxs = []
+        for k in range(num_pickups):
+            room = rooms[(k + 1) % len(rooms)]
+            rx, ry, rw, rh = room
+            px = rx + rw * (0.3 + rng.random() * 0.4)
+            py = ry + rh * (0.3 + rng.random() * 0.4)
+            pi = len(vertices)
+            vertices.append((px, py))
+            pickup_idxs.append(pi)
+
+        all_x = [v[0] for v in vertices]
+        all_y = [v[1] for v in vertices]
+        bw = max(all_x) - min(all_x) + 100
+        bh = max(all_y) - min(all_y) + 200
+
+        return GeneratedMap(
+            vertices=vertices, lines=lines, pickups=pickup_idxs,
+            start_index=spawn_idx, bounding_width=bw, bounding_height=bh,
+            strategy_name=self.name,
+        )
+
+
+class MazeToCaveGenerator:
+    """Transition from maze to cave/asteroid field.
+
+    Generates a maze with heavy wall removal, making it progressively
+    more open. Remaining walls feel like scattered obstacles rather than
+    corridors.
+    """
+    name = "maze_to_cave"
+
+    def __init__(self, rng: random.Random, target_difficulty: float):
+        self.rng = rng
+        self.td = target_difficulty
+
+    def generate(self) -> GeneratedMap:
+        rng = self.rng
+        td = self.td
+
+        # Start with a low-difficulty maze, increase wall removal to open it up
+        cols = int(3 + td * 2)       # 3 -> 5
+        rows = int(3 + td * 2)       # 3 -> 5
+        cell_w = int(200 + td * 40)  # 200 -> 240 (bigger cells = more open)
+        cell_h = int(200 + td * 40)
+        num_pickups = max(1, int(1 + td * 4))
+        wall_removal = 0.3 + td * 0.45  # 0.3 -> 0.75 (heavy removal)
+
+        # Generate maze using recursive backtracking
+        h_walls = [[True] * cols for _ in range(rows + 1)]
+        v_walls = [[True] * (cols + 1) for _ in range(rows)]
+
+        visited = [[False] * cols for _ in range(rows)]
+        stack = [(0, 0)]
+        visited[0][0] = True
+
+        while stack:
+            r, c = stack[-1]
+            neighbors = []
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                nr, nc = r + dr, c + dc
+                if 0 <= nr < rows and 0 <= nc < cols and not visited[nr][nc]:
+                    neighbors.append((nr, nc, dr, dc))
+            if not neighbors:
+                stack.pop()
+                continue
+            nr, nc, dr, dc = rng.choice(neighbors)
+            if dr == -1:
+                h_walls[r][c] = False
+            elif dr == 1:
+                h_walls[r + 1][c] = False
+            elif dc == -1:
+                v_walls[r][c] = False
+            elif dc == 1:
+                v_walls[r][c + 1] = False
+            visited[nr][nc] = True
+            stack.append((nr, nc))
+
+        # Heavy wall removal to open up the maze
+        interior_h = [(r, c) for r in range(1, rows) for c in range(cols) if h_walls[r][c]]
+        interior_v = [(r, c) for r in range(rows) for c in range(1, cols) if v_walls[r][c]]
+        all_removable = interior_h + interior_v
+        rng.shuffle(all_removable)
+        to_remove = int(len(all_removable) * wall_removal)
+        for idx in range(to_remove):
+            item = all_removable[idx]
+            if item in interior_h:
+                h_walls[item[0]][item[1]] = False
+            else:
+                v_walls[item[0]][item[1]] = False
+
+        offset_x = 100.0
+        offset_y = 250.0
+        vertices = []
+        lines = []
+
+        v_grid = {}
+        for gr in range(rows + 1):
+            for gc in range(cols + 1):
+                v_grid[(gr, gc)] = len(vertices)
+                vertices.append((offset_x + gc * cell_w, offset_y + gr * cell_h))
+
+        for r in range(rows + 1):
+            for c in range(cols):
+                if h_walls[r][c]:
+                    lines.append((v_grid[(r, c)], v_grid[(r, c + 1)]))
+
+        for r in range(rows):
+            for c in range(cols + 1):
+                if v_walls[r][c]:
+                    lines.append((v_grid[(r, c)], v_grid[(r + 1, c)]))
+
+        spawn_idx = len(vertices)
+        vertices.append((offset_x + cell_w * 0.5, offset_y + cell_h * 0.5 + 100))
+
+        pickup_idxs = []
+        available_cells = [(r, c) for r in range(rows) for c in range(cols) if (r, c) != (0, 0)]
+        rng.shuffle(available_cells)
+        for k in range(min(num_pickups, len(available_cells))):
+            cr, cc_ = available_cells[k]
+            px = offset_x + (cc_ + 0.5) * cell_w
+            py = offset_y + (cr + 0.5) * cell_h
+            pi = len(vertices)
+            vertices.append((px, py))
+            pickup_idxs.append(pi)
+
+        if not pickup_idxs:
+            pi = len(vertices)
+            vertices.append((offset_x + cell_w * 1.5, offset_y + cell_h * 0.5))
+            pickup_idxs.append(pi)
+
+        bw = cols * cell_w + 200
+        bh = rows * cell_h + 400
+
+        return GeneratedMap(
+            vertices=vertices, lines=lines, pickups=pickup_idxs,
+            start_index=spawn_idx, bounding_width=bw, bounding_height=bh,
+            strategy_name=self.name,
+        )
+
+
+class CaveToGauntletGenerator:
+    """Transition from cave/asteroid field to gauntlet.
+
+    Places obstacles to form a loose channel that the agent must follow,
+    getting progressively narrower and more directed.
+    """
+    name = "cave_to_gauntlet"
+
+    def __init__(self, rng: random.Random, target_difficulty: float):
+        self.rng = rng
+        self.td = target_difficulty
+
+    def generate(self) -> GeneratedMap:
+        rng = self.rng
+        td = self.td
+
+        map_w = int(900 + td * 400)    # 900 -> 1300
+        map_h = int(900 + td * 400)    # 900 -> 1300
+        num_obstacles = int(4 + td * 8)  # 4 -> 12
+        obstacle_radius = int(30 + td * 25)  # 30 -> 55
+        num_pickups = max(1, int(1 + td * 4))
+        sides = rng.randint(5, 8)
+
+        # Channel parameters: obstacles form walls of a loose channel
+        # Channel runs top-to-bottom (or with bends at higher td)
+        channel_center_x = map_w / 2
+        channel_width = 300 - td * 140  # 300 -> 160 (narrows with td)
+
+        vertices = []
+        lines = []
+
+        # Outer boundary
+        _add_rect_walls(vertices, lines, 0, 0, map_w, map_h)
+
+        obstacles = []
+        margin = 80
+
+        # Place obstacles biased to form channel walls
+        for _ in range(num_obstacles * 40):
+            if len(obstacles) >= num_obstacles:
+                break
+            r = obstacle_radius + rng.randint(-10, 10)
+
+            # Bias placement to the sides of the channel
+            if rng.random() < 0.7:
+                # Place on left or right of channel
+                side = rng.choice([-1, 1])
+                cx = channel_center_x + side * (channel_width / 2 + r + rng.uniform(10, 80))
+                cx = max(margin + r, min(map_w - margin - r, cx))
+            else:
+                # Random placement (some obstacles in open areas)
+                cx = rng.uniform(margin + r, map_w - margin - r)
+
+            cy = rng.uniform(margin + r, map_h - margin - r)
+
+            ok = True
+            for ox, oy, or_ in obstacles:
+                dist = math.hypot(cx - ox, cy - oy)
+                if dist < r + or_ + MIN_CORRIDOR_WIDTH + 10:
+                    ok = False
+                    break
+            if ok:
+                obstacles.append((cx, cy, r))
+                _add_polygon(vertices, lines, cx, cy, r, sides)
+
+        # Spawn at top-center
+        spawn_idx = len(vertices)
+        vertices.append((channel_center_x, 150))
+
+        # Place pickups along the channel, spread vertically
+        pickup_idxs = []
+        for k in range(num_pickups):
+            py = margin + (k + 1) * (map_h - 2 * margin) / (num_pickups + 1)
+            px = channel_center_x + rng.uniform(-channel_width * 0.3, channel_width * 0.3)
+            ok = True
+            for ox, oy, or_ in obstacles:
+                if math.hypot(px - ox, py - oy) < or_ + INFLATION_RADIUS + 10:
+                    ok = False
+                    break
+            if not ok:
+                px = channel_center_x  # fallback to center
+            pi = len(vertices)
+            vertices.append((px, py))
+            pickup_idxs.append(pi)
+
+        if not pickup_idxs:
+            pi = len(vertices)
+            vertices.append((channel_center_x, map_h / 2))
+            pickup_idxs.append(pi)
+
+        return GeneratedMap(
+            vertices=vertices, lines=lines, pickups=pickup_idxs,
+            start_index=spawn_idx, bounding_width=float(map_w), bounding_height=float(map_h),
+            strategy_name=self.name,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Main generation pipeline
 # ---------------------------------------------------------------------------
 STRATEGIES = {
     'simple': SimpleGenerator,
+    'simple_to_room': SimpleToRoomGenerator,
     'room': RoomCorridorGenerator,
+    'room_to_maze': RoomToMazeGenerator,
     'maze': MazeGenerator,
+    'maze_to_cave': MazeToCaveGenerator,
     'cave': CaveGenerator,
+    'cave_to_gauntlet': CaveToGauntletGenerator,
     'gauntlet': GauntletGenerator,
 }
 
@@ -1006,7 +1468,7 @@ def main():
                         help='Also merge into data/spaceace_levels.json')
     parser.add_argument('--start-level', type=int, default=1000,
                         help='Starting level number (default 1000)')
-    parser.add_argument('--strategy', choices=['simple', 'room', 'maze', 'cave', 'gauntlet', 'all'],
+    parser.add_argument('--strategy', choices=list(STRATEGIES.keys()) + ['all'],
                         default='all', help='Generation strategy (default all)')
     parser.add_argument('--visualize', action='store_true', help='Print ASCII preview of each map')
     args = parser.parse_args()

@@ -104,7 +104,7 @@ fn evaluate_state_breakdown(game: &RealSpaceAceGame, pathfinder: &PathfinderKind
         bd.total = pathfinder.total_pickups() as f64 * 200.0 + 1000.0;
         return bd;
     }
-    if game.is_ship_exploded() { bd.total = -100.0; return bd; }
+    if game.is_ship_exploded() { bd.total = -1000.0; return bd; }
 
     let state = game.get_state();
     let ship_x = state.ship_x;
@@ -123,25 +123,47 @@ fn evaluate_state_breakdown(game: &RealSpaceAceGame, pathfinder: &PathfinderKind
     // Pickups collected
     bd.pickups_score = (pathfinder.total_pickups() as f64 - pickups_remaining as f64) * 200.0;
 
-    // Path proximity: exponential decay concentrates gradient near the pickup
-    // dist=200: 1.8, dist=76: 21.9, dist=46: 39.9, dist=10: 81.9
-    // This creates steep gradient near collection radius (46.5px)
-    if path_dist > 0.0 {
-        bd.proximity_score = 100.0 * (-path_dist / 50.0).exp() - path_dist * 0.02;
+    // When path_dist is small, switch to euclidean distance to the pickup.
+    // The pathfinder grid can't route into the wall inflation zone, but the
+    // ship CAN fly there to collect. Use euclidean once we're within ~60px
+    // so the heuristic has gradient all the way to collection.
+    let (guide_dist, guide_dx, guide_dy) = if path_dist > 0.0 && path_dist < 80.0 {
+        // Get target pickup position and compute direct euclidean vector
+        let collected: Vec<bool> = game.get_pickup_positions().iter().map(|&(_, _, c)| c).collect();
+        let target_info = pathfinder.get_debug_target_info(ship_x, ship_y, ship_vx, ship_vy, &collected);
+        let tx = target_info.1 as f64;
+        let ty = target_info.2 as f64;
+        let edx = tx - ship_x as f64;
+        let edy = ty - ship_y as f64;
+        let edist = (edx * edx + edy * edy).sqrt();
+        if edist > 1.0 {
+            (edist, edx / edist, edy / edist)
+        } else {
+            (edist, dir_x, dir_y)
+        }
+    } else {
+        (path_dist, dir_x, dir_y)
+    };
+
+    // Path proximity: exponential bonus near the pickup creates gradient toward it.
+    // Bonus only (never negative) — being far from the *next* pickup shouldn't
+    // penalize collecting the *current* one.
+    if guide_dist > 0.0 {
+        bd.proximity_score = 100.0 * (-guide_dist / 50.0).exp();
     }
 
     // Velocity toward pickup
-    if path_dist > 0.0 {
-        bd.speed_toward = ship_vx as f64 * dir_x + ship_vy as f64 * dir_y;
+    if guide_dist > 0.0 {
+        bd.speed_toward = ship_vx as f64 * guide_dx + ship_vy as f64 * guide_dy;
         bd.velocity_score = bd.speed_toward * 0.3;
     }
 
     // Ship orientation alignment
-    if path_dist > 0.0 {
+    if guide_dist > 0.0 {
         let heading_x = ship_rot.sin();
         let heading_y = -ship_rot.cos();
-        bd.alignment = heading_x * dir_x + heading_y * dir_y;
-        let orient_weight = (path_dist / 200.0).min(1.0) * 20.0;
+        bd.alignment = heading_x * guide_dx + heading_y * guide_dy;
+        let orient_weight = (guide_dist / 200.0).min(1.0) * 20.0;
         bd.orientation_score = bd.alignment * orient_weight;
     }
 
@@ -149,22 +171,41 @@ fn evaluate_state_breakdown(game: &RealSpaceAceGame, pathfinder: &PathfinderKind
     let wall_distances = game.get_wall_distances();
     let cos_r = ship_rot.cos();
     let sin_r = ship_rot.sin();
+    let speed = ((ship_vx * ship_vx + ship_vy * ship_vy) as f64).sqrt();
+    let mut min_wall_dist = f64::INFINITY;
 
     for (i, &(dx, dy)) in BASE_DIRS.iter().enumerate() {
         let world_dx = dx * cos_r - dy * sin_r;
         let world_dy = dx * sin_r + dy * cos_r;
         let v_toward = ship_vx as f64 * world_dx + ship_vy as f64 * world_dy;
+        let wall_dist = wall_distances[i] as f64;
+        if wall_dist < min_wall_dist { min_wall_dist = wall_dist; }
         if v_toward > 1.0 {
-            let wall_dist = wall_distances[i] as f64;
             let tti = wall_dist / v_toward;
             if tti < bd.min_tti { bd.min_tti = tti; }
         }
     }
+
     // Scale TTI threshold with speed: faster ships need to react earlier
-    let speed = ((ship_vx * ship_vx + ship_vy * ship_vy) as f64).sqrt();
-    let tti_threshold = 0.4 + (speed as f64 / 200.0).min(0.6);
+    let tti_threshold = 0.4 + (speed / 200.0).min(0.6);
     if bd.min_tti < tti_threshold {
-        bd.tti_penalty = -(tti_threshold - bd.min_tti) * 150.0;
+        // Quadratic penalty — much steeper as TTI approaches zero.
+        // At tti_threshold=1.0, tti=0: penalty = -1.0^2 * 500 = -500
+        // At tti=0.3 below threshold: penalty = -0.3^2 * 500 = -45
+        let deficit = tti_threshold - bd.min_tti;
+        bd.tti_penalty = -deficit * deficit * 500.0;
+        // Hard floor: if TTI < 0.15s, this is near-certain death
+        if bd.min_tti < 0.15 {
+            bd.tti_penalty -= 500.0;
+        }
+    }
+
+    // Direct wall proximity penalty: regardless of velocity direction,
+    // being very close to walls is dangerous (gravity, rotation can
+    // quickly change velocity direction into the wall).
+    if min_wall_dist < 40.0 {
+        let prox_penalty = (40.0 - min_wall_dist) / 40.0; // 0..1
+        bd.tti_penalty -= prox_penalty * prox_penalty * 200.0 * (1.0 + speed / 100.0);
     }
 
     bd.total = bd.pickups_score + bd.proximity_score + bd.velocity_score + bd.orientation_score + bd.tti_penalty;

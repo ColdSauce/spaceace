@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import tempfile
 from collections import deque
 
+import numpy as np
+
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import VecNormalize
 
 
 class MetricsCallback(BaseCallback):
@@ -43,7 +43,8 @@ class CurriculumCallback(BaseCallback):
         reward: str,
         action_repeat: int,
         n_envs: int,
-        window: int = 3,
+        pathfinder_backend: str = "grid",
+        window: int = 10,
         verbose: int = 0,
     ):
         super().__init__(verbose)
@@ -53,6 +54,7 @@ class CurriculumCallback(BaseCallback):
         self._reward = reward
         self._action_repeat = action_repeat
         self._n_envs = n_envs
+        self._pathfinder_backend = pathfinder_backend
         self._window = window
         self._stage_idx = 0
         self._recent: deque[float] = deque(maxlen=window)
@@ -65,6 +67,7 @@ class CurriculumCallback(BaseCallback):
 
     def _on_training_start(self) -> None:
         self._stage_start_step = 0
+        self._pending_advance = False
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -86,9 +89,15 @@ class CurriculumCallback(BaseCallback):
                 )
 
         if self._should_advance():
-            self._advance_stage()
+            self._pending_advance = True
 
         return True
+
+    def _on_rollout_start(self) -> None:
+        """Swap env between rollouts so training never sees mixed data."""
+        if self._pending_advance:
+            self._pending_advance = False
+            self._advance_stage()
 
     def _should_advance(self) -> bool:
         if self._stage_idx >= len(self._stages) - 1:
@@ -112,34 +121,16 @@ class CurriculumCallback(BaseCallback):
             f"levels {stage.levels}, max_steps={stage.max_episode_steps}"
         )
 
-        old_env = self.model.get_env()
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
-            stats_path = f.name
-        old_env.save(stats_path)
+        # Update the level pool on each RandomLevelEnv inside the VecEnv.
+        # No env teardown/rebuild — just change what levels get sampled on reset.
+        # Uses env_method() which works with both DummyVecEnv and SubprocVecEnv.
+        vec_env = self.model.get_env()
+        raw_vec = vec_env.venv if hasattr(vec_env, 'venv') else vec_env
+        raw_vec.env_method("set_curriculum", stage.levels, stage.max_episode_steps)
 
-        from spaceace.training.envs import make_random_level_env
-        from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
-
-        thunks = [
-            make_random_level_env(
-                stage.levels, stage.max_episode_steps, self._obs, self._reward, self._action_repeat
-            )
-            for _ in range(self._n_envs)
-        ]
-        if self._n_envs > 1:
-            raw_env = SubprocVecEnv(thunks, start_method="fork")
-        else:
-            raw_env = DummyVecEnv(thunks)
-
-        new_env = VecNormalize.load(stats_path, raw_env)
-        new_env.training = True
-        new_env.norm_reward = True
-
-        self.model.set_env(new_env)
-        old_env.close()
-
-        import os
-        os.unlink(stats_path)
+        # Reset so the new levels take effect immediately
+        self.model._last_obs = vec_env.reset()
+        self.model._last_episode_starts = np.ones((self._n_envs,), dtype=bool)
 
         self._recent.clear()
         self._episode_completions.clear()

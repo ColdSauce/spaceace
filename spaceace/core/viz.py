@@ -1,6 +1,7 @@
 """Real-time visual renderer for SpaceAce using pygame."""
 
 import math
+import os
 import time
 from typing import Optional, List, Tuple, Dict, Any
 
@@ -56,7 +57,7 @@ def extract_game_info(obs, info, env):
 class VisualRenderer:
     """Real-time pygame renderer for SpaceAce."""
 
-    def __init__(self, width=1200, height=800, scale=0.8):
+    def __init__(self, width=1200, height=800, scale=0.8, screenshot_dir: Optional[str] = None):
         pygame.init()
         self.width = width
         self.height = height
@@ -77,6 +78,12 @@ class VisualRenderer:
         self.camera_y = 0
         self.frame_count = 0
         self.start_time = time.time()
+
+        # Screenshot support
+        self._screenshot_dir = screenshot_dir or "screenshots"
+        self._screenshot_count = 0
+        self._screenshot_interval = 0  # 0 = disabled, >0 = every N frames
+        self._episode = 0
 
         # Debug recording (toggle with X key)
         self.recording = False
@@ -374,6 +381,24 @@ class VisualRenderer:
                 rendered = self.font_small.render(text, True, color)
                 self.screen.blit(rendered, (a_panel_x, a_panel_y + i * line_h))
 
+    def save_screenshot(self, label: str = "") -> str:
+        """Save the current screen as a PNG. Returns the file path."""
+        os.makedirs(self._screenshot_dir, exist_ok=True)
+        tag = f"_{label}" if label else ""
+        filename = f"frame_{self._screenshot_count:04d}_ep{self._episode}{tag}.png"
+        path = os.path.join(self._screenshot_dir, filename)
+        pygame.image.save(self.screen, path)
+        self._screenshot_count += 1
+        print(f"[SCREENSHOT] {path}")
+        return path
+
+    def set_episode(self, episode: int):
+        self._episode = episode
+
+    def enable_auto_screenshots(self, interval: int):
+        """Auto-save a screenshot every `interval` frames. 0 to disable."""
+        self._screenshot_interval = interval
+
     def render_frame(self, game_state, info, reward, action=None, pickups=None, map_bounds=None, debug_path=None, mcts_debug=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -386,6 +411,8 @@ class VisualRenderer:
                 else:
                     self.recording = False
                     self._save_recording()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_s:
+                self.save_screenshot("manual")
 
         # Record debug data if active
         if self.recording and mcts_debug:
@@ -439,6 +466,11 @@ class VisualRenderer:
 
         pygame.display.flip()
         self.frame_count += 1
+
+        # Auto-screenshot at interval
+        if self._screenshot_interval > 0 and self.frame_count % self._screenshot_interval == 0:
+            self.save_screenshot("auto")
+
         return True
 
     def _save_recording(self):
