@@ -98,17 +98,17 @@ class TestDiscreteAction6:
 class TestRawObs19:
     def test_space_shape(self):
         obs = RawObs19()
-        assert obs.space.shape == (20,)
+        assert obs.space.shape == (36,)
 
     def test_passthrough(self):
         obs = RawObs19()
-        raw = np.random.randn(20).astype(np.float32)
+        raw = np.random.randn(36).astype(np.float32)
         result = obs.build(raw, {}, None)
         np.testing.assert_array_equal(result, raw)
 
     def test_reset_passthrough(self):
         obs = RawObs19()
-        raw = np.random.randn(20).astype(np.float32)
+        raw = np.random.randn(36).astype(np.float32)
         result = obs.reset(raw, {}, None)
         np.testing.assert_array_equal(result, raw)
 
@@ -128,14 +128,15 @@ def _mock_env():
 class TestPathAugmentedObs23:
     def test_space_shape(self):
         obs = PathAugmentedObs23(_mock_pathfinder(), max_steps=3000)
-        assert obs.space.shape == (24,)
+        assert obs.space.shape == (40,)
 
     def test_build_output_shape(self):
         obs = PathAugmentedObs23(_mock_pathfinder(), max_steps=3000)
-        raw = np.zeros(20, dtype=np.float32)
-        raw[8:16] = 100.0  # wall distances (avoid division issues)
+        raw = np.zeros(36, dtype=np.float32)
+        raw[8:16] = 100.0   # coarse wall distances
+        raw[20:36] = 100.0  # fine wall distances
         result = obs.reset(raw, {}, _mock_env())
-        assert result.shape == (24,)
+        assert result.shape == (40,)
         assert result.dtype == np.float32
 
 

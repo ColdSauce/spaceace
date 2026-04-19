@@ -131,15 +131,25 @@ def sync_runs() -> int:
     synced = 0
     now = datetime.now(timezone.utc).isoformat()
 
-    for entry in sorted(TB_DIR.iterdir()):
+    t_iter = time.perf_counter()
+    entries = sorted(TB_DIR.iterdir())
+    print(f"[sync_runs] iterdir({len(entries)} entries) took {time.perf_counter()-t_iter:.2f}s")
+
+    for entry in entries:
         if not entry.is_dir():
             continue
         run_name = entry.name
+        t_run = time.perf_counter()
+
+        t = time.perf_counter()
         event_file = _find_event_file(entry)
+        t_find = time.perf_counter() - t
         if event_file is None:
             continue
 
+        t = time.perf_counter()
         mtime = event_file.stat().st_mtime
+        t_stat = time.perf_counter() - t
 
         # Check if already synced and up-to-date
         row = db.execute(
@@ -147,8 +157,13 @@ def sync_runs() -> int:
             (run_name,),
         ).fetchone()
 
-        if row and row["event_file_mtime"] and abs(row["event_file_mtime"] - mtime) < 1:
-            continue  # unchanged
+        # Skip if unchanged. For active runs (mtime ticking every few seconds),
+        # only re-parse if the file grew by >=30s of training to avoid
+        # re-reading the entire ~20MB tfevents on every dashboard refresh.
+        if row and row["event_file_mtime"]:
+            delta = mtime - row["event_file_mtime"]
+            if delta < 30:
+                continue
 
         meta = _parse_run_name(run_name)
         status = "running" if (time.time() - mtime) < 600 else "completed"
@@ -194,13 +209,24 @@ def sync_runs() -> int:
 
         # Re-extract metrics
         db.execute("DELETE FROM metric_snapshots WHERE run_id = ?", (run_id,))
+        t = time.perf_counter()
         metrics = _extract_metrics(str(entry))
+        t_extract = time.perf_counter() - t
+        t = time.perf_counter()
         if metrics:
             db.executemany(
                 """INSERT OR IGNORE INTO metric_snapshots (run_id, tag, step, wall_time, value)
                    VALUES (?,?,?,?,?)""",
                 [(run_id, tag, step, wt, val) for tag, step, wt, val in metrics],
             )
+        t_insert = time.perf_counter() - t
+        size_mb = event_file.stat().st_size / 1e6
+        print(
+            f"[sync_runs] {run_name}: total={time.perf_counter()-t_run:.2f}s "
+            f"find={t_find*1000:.0f}ms stat={t_stat*1000:.0f}ms "
+            f"extract={t_extract:.2f}s ({len(metrics)} pts, {size_mb:.1f}MB) "
+            f"insert={t_insert*1000:.0f}ms"
+        )
 
         db.commit()
         synced += 1
@@ -209,32 +235,120 @@ def sync_runs() -> int:
     return synced
 
 
+def sync_one_run(run_name: str) -> bool:
+    """Sync a single tensorboard run by name. Cheap — used by polling endpoints.
+
+    Returns True if the run was found and (re)synced, False if it doesn't exist
+    on disk yet.
+    """
+    if not TB_DIR.is_dir():
+        return False
+    run_dir = TB_DIR / run_name
+    if not run_dir.is_dir():
+        return False
+    event_file = _find_event_file(run_dir)
+    if event_file is None:
+        return False
+
+    mtime = event_file.stat().st_mtime
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT id, event_file_mtime FROM training_runs WHERE run_name = ?",
+            (run_name,),
+        ).fetchone()
+
+        # Skip re-extraction if mtime hasn't moved meaningfully
+        if row and row["event_file_mtime"] and (mtime - row["event_file_mtime"] < 10):
+            return True
+
+        meta = _parse_run_name(run_name)
+        status = "running" if (time.time() - mtime) < 600 else "completed"
+        now = datetime.now(timezone.utc).isoformat()
+
+        if row:
+            run_id = row["id"]
+            db.execute(
+                """UPDATE training_runs
+                   SET agent_type=?, levels=?, action_repeat=?, total_timesteps=?,
+                       status=?, event_file_path=?, event_file_mtime=?, synced_at=?
+                   WHERE id=?""",
+                (meta["agent_type"], meta["levels"], meta["action_repeat"],
+                 meta["total_timesteps"], status, str(event_file), mtime, now, run_id),
+            )
+        else:
+            cur = db.execute(
+                """INSERT INTO training_runs
+                   (run_name, agent_type, levels, action_repeat, total_timesteps,
+                    status, event_file_path, event_file_mtime, created_at, synced_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (run_name, meta["agent_type"], meta["levels"], meta["action_repeat"],
+                 meta["total_timesteps"], status, str(event_file), mtime, now, now),
+            )
+            run_id = cur.lastrowid
+
+        db.execute("DELETE FROM metric_snapshots WHERE run_id = ?", (run_id,))
+        metrics = _extract_metrics(str(run_dir))
+        if metrics:
+            db.executemany(
+                """INSERT OR IGNORE INTO metric_snapshots (run_id, tag, step, wall_time, value)
+                   VALUES (?,?,?,?,?)""",
+                [(run_id, tag, step, wt, val) for tag, step, wt, val in metrics],
+            )
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Sync models
 # ---------------------------------------------------------------------------
 
-# Expected obs dimensions per agent type
+# Expected obs dimensions per agent type. PPO uses PathAugmentedObs23 which
+# now writes 16 base + 8 derived + 16 fine raycasts = 40 dims. Older 24-dim
+# checkpoints are marked incompatible so the dashboard hides them from Watch.
 _EXPECTED_OBS = {
-    "ppo": 24,         # PathAugmentedObs24 (sin/cos rotation)
-    "hrl": 24,         # WaypointEnv (24-dim)
+    "ppo": 40,
+    "hrl": 24,         # WaypointEnv (24-dim, unchanged)
     "alphazero": None,  # .pt/.onnx — not SB3, skip check
     "unknown": None,
 }
 
 
 def _check_compatible(fpath: Path, agent_type: str) -> int:
-    """Check if an SB3 .zip model's obs space matches the current code for its agent type."""
+    """Cheap obs-space compatibility check.
+
+    SB3 stores `observation_space` in the zip's `data` JSON as a base64-pickled
+    Box under `:serialized:`. We decode that and read `.shape[0]` directly.
+    Avoids the ~3-5s cost of a full PPO.load (no torch import).
+    """
     if fpath.suffix != ".zip":
         return 1
     expected = _EXPECTED_OBS.get(agent_type)
     if expected is None:
         return 1
     try:
-        from stable_baselines3 import PPO
-        m = PPO.load(str(fpath), device="cpu")
-        obs_dim = m.observation_space.shape[0]
-        del m
-        return 1 if obs_dim == expected else 0
+        import base64
+        import json
+        import pickle
+        import zipfile
+
+        with zipfile.ZipFile(str(fpath)) as zf:
+            with zf.open("data") as f:
+                data = json.load(f)
+
+        obs_space = data.get("observation_space")
+        if not isinstance(obs_space, dict):
+            return 1
+        serialized = obs_space.get(":serialized:")
+        if not serialized:
+            return 1
+        space = pickle.loads(base64.b64decode(serialized))
+        shape = getattr(space, "shape", None)
+        if not shape:
+            return 1
+        return 1 if int(shape[0]) == expected else 0
     except Exception:
         return 0
 
@@ -248,6 +362,13 @@ def sync_models() -> int:
     synced = 0
     extensions = {".zip", ".pt", ".onnx"}
 
+    # Pre-load (path -> file_mtime) so we can skip unchanged checkpoints without
+    # re-running the (very expensive) compatibility check.
+    known = {
+        row["path"]: row["file_mtime"]
+        for row in db.execute("SELECT path, file_mtime FROM model_checkpoints").fetchall()
+    }
+
     for root, _dirs, files in os.walk(MODELS_DIR):
         for fname in files:
             fpath = Path(root) / fname
@@ -256,6 +377,9 @@ def sync_models() -> int:
 
             rel_path = str(fpath.relative_to(PROJECT_ROOT))
             stat = fpath.stat()
+            if rel_path in known and known[rel_path] is not None \
+                    and abs(known[rel_path] - stat.st_mtime) < 1:
+                continue  # unchanged, skip the costly PPO.load
 
             # Infer agent type from path
             rel_lower = rel_path.lower()

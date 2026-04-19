@@ -112,6 +112,167 @@ function drawShip(ctx, f, camX, camY, zoom, cw, ch) {
   }
 }
 
+function drawPath(ctx, path, camX, camY, zoom, cw, ch) {
+  if (path.length < 2) return;
+  ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  const s0 = worldToScreen(path[0][0], path[0][1], camX, camY, zoom, cw, ch);
+  ctx.moveTo(s0.x, s0.y);
+  for (let i = 1; i < path.length; i++) {
+    const s = worldToScreen(path[i][0], path[i][1], camX, camY, zoom, cw, ch);
+    ctx.lineTo(s.x, s.y);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw a small diamond at the path target (last point)
+  const end = worldToScreen(path[path.length-1][0], path[path.length-1][1], camX, camY, zoom, cw, ch);
+  const d = 5;
+  ctx.fillStyle = 'rgba(255, 0, 255, 0.7)';
+  ctx.beginPath();
+  ctx.moveTo(end.x, end.y - d);
+  ctx.lineTo(end.x + d, end.y);
+  ctx.lineTo(end.x, end.y + d);
+  ctx.lineTo(end.x - d, end.y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawRaycasts(ctx, f, camX, camY, zoom, cw, ch) {
+  if (!f.wall8) return;
+  const cos = Math.cos(f.rotation);
+  const sin = Math.sin(f.rotation);
+
+  // 8 coarse directions in ship-local space (forward, fwd-right, right, ...)
+  const dirs8 = [
+    [0, -1], [0.707, -0.707], [1, 0], [0.707, 0.707],
+    [0, 1], [-0.707, 0.707], [-1, 0], [-0.707, -0.707],
+  ];
+
+  // 16 fine directions (15° spacing, interleaved with the 8 coarse)
+  const fineAngles = [15, 30, 60, 75, 105, 120, 150, 165, 195, 210, 240, 255, 285, 300, 330, 345];
+  const dirs16 = fineAngles.map(deg => {
+    const rad = deg * Math.PI / 180;
+    return [Math.sin(rad), -Math.cos(rad)];
+  });
+
+  function drawRay(localDx, localDy, dist, color, width) {
+    // Rotate to world space
+    const wdx = localDx * cos - localDy * sin;
+    const wdy = localDx * sin + localDy * cos;
+    const endX = f.x + wdx * dist;
+    const endY = f.y + wdy * dist;
+    const s1 = worldToScreen(f.x, f.y, camX, camY, zoom, cw, ch);
+    const s2 = worldToScreen(endX, endY, camX, camY, zoom, cw, ch);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(s1.x, s1.y);
+    ctx.lineTo(s2.x, s2.y);
+    ctx.stroke();
+  }
+
+  // Draw fine rays (dimmer)
+  if (f.wall16) {
+    for (let i = 0; i < 16; i++) {
+      drawRay(dirs16[i][0], dirs16[i][1], f.wall16[i], 'rgba(0,150,255,0.15)', 1);
+    }
+  }
+
+  // Draw coarse rays (brighter)
+  for (let i = 0; i < 8; i++) {
+    const dist = f.wall8[i];
+    const danger = dist < 80;
+    const color = danger ? 'rgba(255,80,80,0.5)' : 'rgba(0,150,255,0.3)';
+    drawRay(dirs8[i][0], dirs8[i][1], dist, color, danger ? 1.5 : 1);
+  }
+
+  // Draw pathfinder direction arrow (from path data)
+  if (f.path && f.path.length >= 2) {
+    const target = f.path[f.path.length - 1];
+    const dx = target[0] - f.x, dy = target[1] - f.y;
+    const mag = Math.sqrt(dx * dx + dy * dy);
+    if (mag > 1) {
+      const arrowLen = Math.min(80, mag * 0.3);
+      const endX = f.x + (dx / mag) * arrowLen;
+      const endY = f.y + (dy / mag) * arrowLen;
+      const s1 = worldToScreen(f.x, f.y, camX, camY, zoom, cw, ch);
+      const s2 = worldToScreen(endX, endY, camX, camY, zoom, cw, ch);
+      ctx.strokeStyle = 'rgba(255,0,255,0.8)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(s1.x, s1.y);
+      ctx.lineTo(s2.x, s2.y);
+      ctx.stroke();
+      // Arrowhead
+      const angle = Math.atan2(s2.y - s1.y, s2.x - s1.x);
+      const headLen = 8;
+      ctx.beginPath();
+      ctx.moveTo(s2.x, s2.y);
+      ctx.lineTo(s2.x - headLen * Math.cos(angle - 0.4), s2.y - headLen * Math.sin(angle - 0.4));
+      ctx.moveTo(s2.x, s2.y);
+      ctx.lineTo(s2.x - headLen * Math.cos(angle + 0.4), s2.y - headLen * Math.sin(angle + 0.4));
+      ctx.stroke();
+    }
+  }
+}
+
+function drawVelocityVector(ctx, f, camX, camY, zoom, cw, ch) {
+  const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
+  if (speed < 0.5) return;
+  const scale = 2.0; // exaggerate for visibility
+  const endX = f.x + f.vx * scale;
+  const endY = f.y + f.vy * scale;
+  const s1 = worldToScreen(f.x, f.y, camX, camY, zoom, cw, ch);
+  const s2 = worldToScreen(endX, endY, camX, camY, zoom, cw, ch);
+  ctx.strokeStyle = 'rgba(255,255,0,0.7)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(s1.x, s1.y);
+  ctx.lineTo(s2.x, s2.y);
+  ctx.stroke();
+}
+
+function drawHUD(ctx, f, frameIdx, totalFrames) {
+  const actionNames = ['coast','thrust','left','left+thr','right','right+thr'];
+  const a = f.action;
+  // Decode MultiDiscrete [rot_left, rot_right, thrust] to action name
+  let actName;
+  if (a[0] === 0 && a[1] === 0 && a[2] === 0) actName = 'COAST';
+  else if (a[0] === 0 && a[1] === 0 && a[2] === 1) actName = 'THRUST';
+  else if (a[0] === 1 && a[1] === 0 && a[2] === 0) actName = 'LEFT';
+  else if (a[0] === 1 && a[1] === 0 && a[2] === 1) actName = 'LEFT+THR';
+  else if (a[0] === 0 && a[1] === 1 && a[2] === 0) actName = 'RIGHT';
+  else if (a[0] === 0 && a[1] === 1 && a[2] === 1) actName = 'RIGHT+THR';
+  else actName = `[${a}]`;
+
+  const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
+  const rotDeg = (f.rotation * 180 / Math.PI).toFixed(0);
+
+  ctx.font = '12px monospace';
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(4, 4, 220, 110);
+
+  ctx.fillStyle = '#00FF00';
+  const lines = [
+    `Step ${frameIdx}/${totalFrames}  Pickups: ${f.pickups_remaining}`,
+    `Action: ${actName}  Reward: ${f.reward.toFixed(2)}`,
+    `Pos: (${f.x.toFixed(0)}, ${f.y.toFixed(0)})`,
+    `Vel: (${f.vx.toFixed(1)}, ${f.vy.toFixed(1)})  Spd: ${speed.toFixed(1)}`,
+    `Rot: ${rotDeg}°`,
+  ];
+  // Closest wall distance
+  if (f.wall8) {
+    const minWall = Math.min(...f.wall8);
+    lines.push(`Closest wall: ${minWall.toFixed(0)}px`);
+  }
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], 8, 18 + i * 16);
+  }
+}
+
 function drawMiniMap(ctx, walls, bounds, shipX, shipY, cw, ch) {
   const mmW = 160, mmH = 110;
   const mmX = cw - mmW - 10, mmY = 10;
@@ -181,6 +342,12 @@ export function renderFrame(canvas, replay, frameIdx) {
 
   drawMap(ctx, replay.walls, camX, camY, zoom, W, H);
   drawPickups(ctx, replay.pickups_initial, f.pickup_collected, camX, camY, zoom, W, H);
+  if (f.path && f.path.length > 1) {
+    drawPath(ctx, f.path, camX, camY, zoom, W, H);
+  }
+  drawRaycasts(ctx, f, camX, camY, zoom, W, H);
   drawShip(ctx, f, camX, camY, zoom, W, H);
+  drawVelocityVector(ctx, f, camX, camY, zoom, W, H);
   drawMiniMap(ctx, replay.walls, replay.bounds, f.x, f.y, W, H);
+  drawHUD(ctx, f, frameIdx, replay.frames.length);
 }

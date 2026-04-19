@@ -17,6 +17,7 @@ impl LineSegment {
     }
 }
 
+#[derive(Clone)]
 pub struct RealCollisionSystem {
     lines: Vec<LineSegment>,
     // Spatial partitioning grid (exact size from JavaScript)

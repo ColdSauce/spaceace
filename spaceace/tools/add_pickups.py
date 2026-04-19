@@ -111,10 +111,18 @@ def add_pickups_to_level(data: dict, extra_count: int, rng: random.Random) -> di
     existing_positions = [verts[p] for p in pickups]
     existing_positions.append(verts[data["start_idx"]])
 
+    # Sample within the actual vertex bounding box — `bw`/`bh` do not always
+    # enclose the walls (e.g. L3106 has verts offset to x=[655,1615] but
+    # bw=1060, so (0,bw)×(0,bh) misses the walled region entirely).
+    xs = [v[0] for v in verts]
+    ys = [v[1] for v in verts]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+
     for _ in range(extra_count):
         for _attempt in range(50000):
-            px = rng.uniform(0, bw)
-            py = rng.uniform(0, bh)
+            px = rng.uniform(xmin, xmax)
+            py = rng.uniform(ymin, ymax)
 
             # Must be inside the walled area
             if not _is_inside_walls(px, py, segments):

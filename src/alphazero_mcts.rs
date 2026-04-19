@@ -160,9 +160,11 @@ fn evaluate_leaf(
             (policy, value as f64)
         }
         None => {
-            // Fallback: uniform prior, heuristic value normalized to [-1, 1]
+            // Fallback: uniform prior, heuristic value normalized via tanh (preserves
+            // gradient across the full heuristic range; /200 matches normalize_heuristic
+            // used in training value targets).
             let heuristic = evaluate_state_pub(game, pathfinder);
-            let value = (heuristic / 1000.0).clamp(-1.0, 1.0);
+            let value = (heuristic / 200.0).tanh();
             ([1.0 / NUM_ACTIONS as f64; NUM_ACTIONS], value)
         }
     }

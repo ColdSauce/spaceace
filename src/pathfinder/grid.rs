@@ -3,7 +3,18 @@ use std::cmp::Reverse;
 use crate::real_game::RealSpaceAceGame;
 
 const CELL_SIZE: f32 = 10.0;
-const INFLATION_RADIUS: f32 = 35.0;
+const INFLATION_RADIUS: f32 = 38.0;
+/// Fallback inflation used for pickups unreachable under the standard
+/// INFLATION_RADIUS — some levels (e.g. level 6) have corridors narrower
+/// than 2×38=76px that the standard inflation seals off on both sides.
+/// Reduced to the ship's actual collision radius (36.5px, real_physics.rs):
+/// any corridor the ship could physically pass through stays unblocked,
+/// and any corridor too narrow for the ship remains blocked. No false
+/// safety margin — just geometric truth.
+const TIGHT_INFLATION_RADIUS: f32 = 36.5;
+/// A pickup's distance field must reach at least this many cells to be
+/// considered "usable"; otherwise we fall back to the tight grid.
+const MIN_REACHABLE_CELLS: usize = 100;
 
 /// Raw difficulty metrics computed from pathfinder analysis.
 /// All values are unnormalized; normalization happens in Python.
@@ -61,7 +72,14 @@ pub struct PathfinderGrid {
     min_x: f32,
     min_y: f32,
     blocked: Vec<bool>,
+    /// Secondary grid built with TIGHT_INFLATION_RADIUS, used only for
+    /// pickups whose distance field came up empty under standard inflation.
+    blocked_tight: Vec<bool>,
     distance_fields: Vec<Vec<i32>>, // one per pickup
+    /// True if pickup i's distance field was built on `blocked_tight` rather
+    /// than `blocked`. Routing to such a pickup must snap the ship's cell
+    /// against the tight grid, or it gets teleported out of the corridor.
+    uses_tight_grid: Vec<bool>,
     pickup_dist_matrix: Vec<Vec<i32>>,
     pickup_coords: Vec<(f32, f32)>,
     pub total_pickups: usize,
@@ -79,34 +97,75 @@ impl PathfinderGrid {
         let rows = ((bounds.max_y - bounds.min_y) / CELL_SIZE) as usize + 1;
 
         let map_lines = game.get_map_lines();
-        let blocked = Self::build_blocked_grid(rows, cols, min_x, min_y, &map_lines);
+        let blocked = Self::build_blocked_grid(rows, cols, min_x, min_y, &map_lines, INFLATION_RADIUS);
+        let blocked_tight = Self::build_blocked_grid(rows, cols, min_x, min_y, &map_lines, TIGHT_INFLATION_RADIUS);
 
         let pickup_positions = game.get_pickup_positions();
         let pickup_coords: Vec<(f32, f32)> = pickup_positions.iter().map(|&(x, y, _)| (x, y)).collect();
         let total_pickups = pickup_coords.len();
 
         let mut distance_fields = Vec::with_capacity(total_pickups);
+        let mut uses_tight_grid = Vec::with_capacity(total_pickups);
         for &(px, py) in &pickup_coords {
-            let df = Self::dijkstra_from(rows, cols, min_x, min_y, &blocked, px, py);
-            distance_fields.push(df);
+            // Build on both grids and pick whichever reaches more cells —
+            // checking a single grid and thresholding doesn't distinguish a
+            // pickup that's truly walled off from one that happens to sit in
+            // a large local cavity. The tight grid reaches strictly more
+            // cells whenever there's a sub-76px corridor the standard grid
+            // can't traverse, so "more cells reached" is the right signal.
+            let df_std = Self::dijkstra_from(rows, cols, min_x, min_y, &blocked, px, py);
+            let df_tight = Self::dijkstra_from(rows, cols, min_x, min_y, &blocked_tight, px, py);
+            let reach_std = df_std.iter().filter(|&&d| d >= 0).count();
+            let reach_tight = df_tight.iter().filter(|&&d| d >= 0).count();
+            // Require a meaningful improvement before switching grids (avoids
+            // jitter from 1-2 extra cells) and a floor to catch truly-sealed
+            // pickups that reach only their own cavity.
+            let tight_wins = reach_tight > reach_std + MIN_REACHABLE_CELLS;
+            if tight_wins {
+                distance_fields.push(df_tight);
+                uses_tight_grid.push(true);
+            } else {
+                distance_fields.push(df_std);
+                uses_tight_grid.push(false);
+            }
         }
 
-        // Pickup-to-pickup distance matrix
+        // Pickup-to-pickup distance matrix. To read distance_fields[j] we need
+        // pickup i's cell snapped against the grid j's field was built on —
+        // otherwise a tight pickup at world coords inside standard-inflation
+        // looks up -1 in a standard field and the pair looks unreachable.
         let mut pickup_dist_matrix = vec![vec![0i32; total_pickups]; total_pickups];
         for i in 0..total_pickups {
-            let (pr, pc) = Self::to_grid(rows, cols, min_x, min_y,
-                                          pickup_coords[i].0, pickup_coords[i].1);
+            let (px, py) = pickup_coords[i];
             for j in 0..total_pickups {
                 if i == j { continue; }
+                let grid_j = if uses_tight_grid[j] { &blocked_tight } else { &blocked };
+                let (pr, pc) = Self::to_grid_unblocked(rows, cols, min_x, min_y, grid_j, px, py);
                 let d = distance_fields[j][pr * cols + pc];
                 pickup_dist_matrix[i][j] = if d >= 0 { d } else { i32::MAX / 2 };
             }
         }
 
         PathfinderGrid {
-            rows, cols, min_x, min_y, blocked,
-            distance_fields, pickup_dist_matrix, pickup_coords, total_pickups,
+            rows, cols, min_x, min_y, blocked, blocked_tight,
+            distance_fields, uses_tight_grid,
+            pickup_dist_matrix, pickup_coords, total_pickups,
         }
+    }
+
+    /// Choose the blocked grid a given pickup's distance field was built on.
+    /// Routing / ship-cell snapping must agree with the field, or the ship
+    /// gets teleported out of a narrow corridor when navigating to a tight pickup.
+    fn blocked_for_pickup(&self, pickup_idx: usize) -> &[bool] {
+        if self.uses_tight_grid[pickup_idx] { &self.blocked_tight } else { &self.blocked }
+    }
+
+    /// Snap the ship's world coordinates to a grid cell valid for reading
+    /// pickup `pickup_idx`'s distance field.
+    fn ship_cell_for_pickup(&self, pickup_idx: usize, ship_x: f32, ship_y: f32) -> (usize, usize) {
+        Self::to_grid_unblocked(
+            self.rows, self.cols, self.min_x, self.min_y,
+            self.blocked_for_pickup(pickup_idx), ship_x, ship_y)
     }
 
     fn to_grid(rows: usize, cols: usize, min_x: f32, min_y: f32, x: f32, y: f32) -> (usize, usize) {
@@ -142,15 +201,15 @@ impl PathfinderGrid {
     }
 
     fn build_blocked_grid(rows: usize, cols: usize, min_x: f32, min_y: f32,
-                           map_lines: &[(f32, f32, f32, f32)]) -> Vec<bool> {
+                           map_lines: &[(f32, f32, f32, f32)], inflation: f32) -> Vec<bool> {
         let mut blocked = vec![false; rows * cols];
-        let inf_sq = INFLATION_RADIUS * INFLATION_RADIUS;
+        let inf_sq = inflation * inflation;
 
         for &(x1, y1, x2, y2) in map_lines {
             let (r_min, c_min) = Self::to_grid(rows, cols, min_x, min_y,
-                x1.min(x2) - INFLATION_RADIUS, y1.min(y2) - INFLATION_RADIUS);
+                x1.min(x2) - inflation, y1.min(y2) - inflation);
             let (r_max, c_max) = Self::to_grid(rows, cols, min_x, min_y,
-                x1.max(x2) + INFLATION_RADIUS, y1.max(y2) + INFLATION_RADIUS);
+                x1.max(x2) + inflation, y1.max(y2) + inflation);
 
             for r in r_min..=r_max {
                 for c in c_min..=c_max {
@@ -230,8 +289,19 @@ impl PathfinderGrid {
     }
 
     pub fn get_nearest_pickup_info(&self, ship_x: f32, ship_y: f32, collected: &[bool]) -> (f64, f64, f64) {
-        let (sr, sc) = Self::to_grid_unblocked(
+        let (sr_std, sc_std) = Self::to_grid_unblocked(
             self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
+        // Only compute the tight snap if any pickup actually needs it.
+        let has_tight = self.uses_tight_grid.iter().any(|&t| t);
+        let (sr_tight, sc_tight) = if has_tight {
+            Self::to_grid_unblocked(
+                self.rows, self.cols, self.min_x, self.min_y, &self.blocked_tight, ship_x, ship_y)
+        } else {
+            (sr_std, sc_std)
+        };
+        let pickup_cell = |i: usize| -> (usize, usize) {
+            if self.uses_tight_grid[i] { (sr_tight, sc_tight) } else { (sr_std, sc_std) }
+        };
 
         let uncollected: Vec<usize> = (0..self.total_pickups).filter(|&i| !collected[i]).collect();
         if uncollected.is_empty() {
@@ -243,6 +313,7 @@ impl PathfinderGrid {
         let mut best_idx = uncollected[0];
 
         for &i in &uncollected {
+            let (sr, sc) = pickup_cell(i);
             let d_to_i = self.distance_fields[i][sr * self.cols + sc];
             if d_to_i < 0 { continue; }
             let remaining: Vec<usize> = uncollected.iter().copied().filter(|&j| j != i).collect();
@@ -253,6 +324,7 @@ impl PathfinderGrid {
             }
         }
 
+        let (sr, sc) = pickup_cell(best_idx);
         let dist_to_target = self.distance_fields[best_idx][sr * self.cols + sc];
         if dist_to_target < 0 {
             return (0.0, 0.0, 0.0);
@@ -300,6 +372,142 @@ impl PathfinderGrid {
         } else {
             (world_dist, 0.0, 0.0)
         }
+    }
+
+    /// Look-ahead route tangent. Traces `look_ahead_cells` grid steps along
+    /// the BFS gradient toward the greedy-TSP-best first pickup and returns
+    /// the normalized direction from the ship to that projected point.
+    ///
+    /// This is the direction you should *be moving* to stay on the optimal
+    /// route, not the direction to the next pickup — the two differ when the
+    /// route bends around a wall (the tangent hugs the corridor; the pickup
+    /// direction cuts through the wall). For the velocity/orientation terms
+    /// of the heuristic, the tangent is what rewards expert swoop/corner play.
+    ///
+    /// Falls back to the direct pickup vector when within Euclidean collection
+    /// range (the tangent concept degenerates at the pickup itself) or when
+    /// the distance field is unreachable.
+    ///
+    /// Returns (dir_x, dir_y, ok) — `ok` is false if no uncollected pickup
+    /// reachable; callers should fall back to zero velocity bonus in that case.
+    pub fn get_route_tangent(&self, ship_x: f32, ship_y: f32, collected: &[bool], look_ahead_cells: usize) -> (f64, f64, bool) {
+        let uncollected: Vec<usize> = (0..self.total_pickups).filter(|&i| !collected[i]).collect();
+        if uncollected.is_empty() { return (0.0, 0.0, false); }
+
+        // Pick the same target as get_nearest_pickup_info / get_remaining_route_length
+        // so the tangent is consistent with the distance/route signals.
+        let (sr_std, sc_std) = Self::to_grid_unblocked(
+            self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
+        let has_tight = self.uses_tight_grid.iter().any(|&t| t);
+        let (sr_tight, sc_tight) = if has_tight {
+            Self::to_grid_unblocked(
+                self.rows, self.cols, self.min_x, self.min_y, &self.blocked_tight, ship_x, ship_y)
+        } else {
+            (sr_std, sc_std)
+        };
+        let pickup_cell = |i: usize| -> (usize, usize) {
+            if self.uses_tight_grid[i] { (sr_tight, sc_tight) } else { (sr_std, sc_std) }
+        };
+
+        let mut best_total = i64::MAX;
+        let mut best_idx = uncollected[0];
+        for &i in &uncollected {
+            let (sr, sc) = pickup_cell(i);
+            let d_to_i = self.distance_fields[i][sr * self.cols + sc];
+            if d_to_i < 0 { continue; }
+            let remaining: Vec<usize> = uncollected.iter().copied().filter(|&j| j != i).collect();
+            let total = d_to_i as i64 + self.greedy_remaining_cost(i, &remaining);
+            if total < best_total { best_total = total; best_idx = i; }
+        }
+
+        let (tx, ty) = self.pickup_coords[best_idx];
+        let (sr, sc) = pickup_cell(best_idx);
+        let df = &self.distance_fields[best_idx];
+
+        // Close range: tangent degenerates — use direct-to-pickup.
+        let euclid_dx = (tx - ship_x) as f64;
+        let euclid_dy = (ty - ship_y) as f64;
+        let euclid_dist = (euclid_dx * euclid_dx + euclid_dy * euclid_dy).sqrt();
+        if euclid_dist < 120.0 {
+            if euclid_dist > 1.0 {
+                return (euclid_dx / euclid_dist, euclid_dy / euclid_dist, true);
+            }
+            return (0.0, 0.0, true);
+        }
+
+        if df[sr * self.cols + sc] < 0 {
+            // Unreachable: fall back to direct.
+            if euclid_dist > 1.0 {
+                return (euclid_dx / euclid_dist, euclid_dy / euclid_dist, true);
+            }
+            return (0.0, 0.0, true);
+        }
+
+        // Trace N steps down the gradient.
+        let mut r = sr;
+        let mut c = sc;
+        for _ in 0..look_ahead_cells {
+            let d = df[r * self.cols + c];
+            if d <= 0 { break; }
+            let mut best_nr = r;
+            let mut best_nc = c;
+            let mut best_nd = d;
+            for &(dr, dc, _cost) in &NEIGHBORS {
+                let nr = r as i32 + dr;
+                let nc = c as i32 + dc;
+                if nr >= 0 && nr < self.rows as i32 && nc >= 0 && nc < self.cols as i32 {
+                    let nr = nr as usize;
+                    let nc = nc as usize;
+                    let nd = df[nr * self.cols + nc];
+                    if nd >= 0 && nd < best_nd { best_nd = nd; best_nr = nr; best_nc = nc; }
+                }
+            }
+            if best_nr == r && best_nc == c { break; }
+            r = best_nr; c = best_nc;
+        }
+
+        let look_x = self.min_x + (c as f32 + 0.5) * CELL_SIZE;
+        let look_y = self.min_y + (r as f32 + 0.5) * CELL_SIZE;
+        let dx = (look_x - ship_x) as f64;
+        let dy = (look_y - ship_y) as f64;
+        let mag = (dx * dx + dy * dy).sqrt();
+        if mag > 1.0 { (dx / mag, dy / mag, true) }
+        else if euclid_dist > 1.0 { (euclid_dx / euclid_dist, euclid_dy / euclid_dist, true) }
+        else { (0.0, 0.0, true) }
+    }
+
+    /// Greedy TSP length of the remaining tour from the ship, in world px.
+    /// Computes: min over first-pickup choices of (ship→i + greedy(i, rest)).
+    /// Returns 0.0 if no pickups remain. Used by the MCTS heuristic for route
+    /// quality beyond the nearest pickup.
+    pub fn get_remaining_route_length(&self, ship_x: f32, ship_y: f32, collected: &[bool]) -> f64 {
+        let uncollected: Vec<usize> = (0..self.total_pickups).filter(|&i| !collected[i]).collect();
+        if uncollected.is_empty() { return 0.0; }
+
+        let (sr_std, sc_std) = Self::to_grid_unblocked(
+            self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
+        let has_tight = self.uses_tight_grid.iter().any(|&t| t);
+        let (sr_tight, sc_tight) = if has_tight {
+            Self::to_grid_unblocked(
+                self.rows, self.cols, self.min_x, self.min_y, &self.blocked_tight, ship_x, ship_y)
+        } else {
+            (sr_std, sc_std)
+        };
+        let pickup_cell = |i: usize| -> (usize, usize) {
+            if self.uses_tight_grid[i] { (sr_tight, sc_tight) } else { (sr_std, sc_std) }
+        };
+
+        let mut best_total = i64::MAX;
+        for &i in &uncollected {
+            let (sr, sc) = pickup_cell(i);
+            let d_to_i = self.distance_fields[i][sr * self.cols + sc];
+            if d_to_i < 0 { continue; }
+            let remaining: Vec<usize> = uncollected.iter().copied().filter(|&j| j != i).collect();
+            let total = d_to_i as i64 + self.greedy_remaining_cost(i, &remaining);
+            if total < best_total { best_total = total; }
+        }
+        if best_total >= i64::MAX / 4 { return 0.0; }
+        best_total as f64 * CELL_SIZE as f64 / 10.0
     }
 
     pub fn get_debug_path(&self, ship_x: f32, ship_y: f32, collected: &[bool]) -> Vec<(f32, f32)> {
@@ -363,9 +571,6 @@ impl PathfinderGrid {
 
     /// Returns (target_pickup_index, target_x, target_y, path_dist, euclidean_dist, dir_x, dir_y)
     pub fn get_debug_target_info(&self, ship_x: f32, ship_y: f32, collected: &[bool]) -> (i32, f32, f32, f64, f64, f64, f64) {
-        let (sr, sc) = Self::to_grid_unblocked(
-            self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
-
         let uncollected: Vec<usize> = (0..self.total_pickups).filter(|&i| !collected[i]).collect();
         if uncollected.is_empty() {
             return (-1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
@@ -374,7 +579,8 @@ impl PathfinderGrid {
         let mut best_total = i64::MAX;
         let mut best_idx = uncollected[0];
         for &i in &uncollected {
-            let d_to_i = self.distance_fields[i][sr * self.cols + sc];
+            let (sr_i, sc_i) = self.ship_cell_for_pickup(i, ship_x, ship_y);
+            let d_to_i = self.distance_fields[i][sr_i * self.cols + sc_i];
             if d_to_i < 0 { continue; }
             let remaining: Vec<usize> = uncollected.iter().copied().filter(|&j| j != i).collect();
             let total = d_to_i as i64 + self.greedy_remaining_cost(i, &remaining);
@@ -384,6 +590,7 @@ impl PathfinderGrid {
             }
         }
 
+        let (sr, sc) = self.ship_cell_for_pickup(best_idx, ship_x, ship_y);
         let (tx, ty) = self.pickup_coords[best_idx];
         let dist_to_target = self.distance_fields[best_idx][sr * self.cols + sc];
         let world_dist = if dist_to_target >= 0 { dist_to_target as f64 * CELL_SIZE as f64 / 10.0 } else { -1.0 };
@@ -430,8 +637,7 @@ impl PathfinderGrid {
             return (0.0, 0.0, 0.0);
         }
 
-        let (sr, sc) = Self::to_grid_unblocked(
-            self.rows, self.cols, self.min_x, self.min_y, &self.blocked, ship_x, ship_y);
+        let (sr, sc) = self.ship_cell_for_pickup(pickup_idx, ship_x, ship_y);
 
         let (tx, ty) = self.pickup_coords[pickup_idx];
         let euclid_dx = (tx - ship_x) as f64;
@@ -701,29 +907,20 @@ impl PathfinderGrid {
     /// Check if all pickups are reachable from (spawn_x, spawn_y).
     /// Returns (all_reachable, per_pickup_distances). Unreachable pickups get f64::INFINITY.
     pub fn validate_reachability(&self, spawn_x: f32, spawn_y: f32) -> (bool, Vec<f64>) {
-        let (sr, sc) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, spawn_x, spawn_y);
-
-        // If spawn is blocked, nothing is reachable
-        if self.blocked[sr * self.cols + sc] {
-            let dists = vec![f64::INFINITY; self.total_pickups];
-            return (false, dists);
-        }
-
-        // Run Dijkstra from spawn
-        let dist = Self::dijkstra_from(self.rows, self.cols, self.min_x, self.min_y,
-                                        &self.blocked, spawn_x, spawn_y);
-
+        // Read each pickup's own distance field at the spawn cell snapped
+        // against the grid that field was built on. A tight-corridor pickup
+        // whose field lives on the reduced-inflation grid is reachable iff
+        // that field has a finite value at spawn, regardless of whether the
+        // standard-inflation grid can route there.
         let mut all_reachable = true;
         let mut pickup_dists = Vec::with_capacity(self.total_pickups);
         for i in 0..self.total_pickups {
-            let (px, py) = self.pickup_coords[i];
-            let (pr, pc) = Self::to_grid(self.rows, self.cols, self.min_x, self.min_y, px, py);
-            let d = dist[pr * self.cols + pc];
+            let (sr, sc) = self.ship_cell_for_pickup(i, spawn_x, spawn_y);
+            let d = self.distance_fields[i][sr * self.cols + sc];
             if d < 0 {
                 all_reachable = false;
                 pickup_dists.push(f64::INFINITY);
             } else {
-                // Convert from weighted grid units to world units
                 pickup_dists.push(d as f64 * CELL_SIZE as f64 / 10.0);
             }
         }

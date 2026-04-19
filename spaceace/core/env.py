@@ -48,6 +48,10 @@ class SpaceAceDirectEnv:
         """Return list of booleans: True if pickup is collected."""
         return self._game.get_pickup_states()
 
+    def get_pickups_remaining(self) -> int:
+        """Count of uncollected pickups."""
+        return int(sum(1 for c in self._game.get_pickup_states() if not c))
+
     def save_state(self):
         """Return an opaque state snapshot for tree search."""
         return self._game.save_state()

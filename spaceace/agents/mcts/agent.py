@@ -21,6 +21,19 @@ class MCTSAgent(BaseAgent):
         self._exploration = kwargs.get("exploration_constant", 1.41)
         self._gamma = kwargs.get("gamma", 0.99)
         self._action_repeat = kwargs.get("action_repeat", 5)
+        self._ar_depth_bonus = kwargs.get("action_repeat_depth_bonus", 0)
+        self._ar_max = kwargs.get("action_repeat_max", 20)
+        self._widen_k = kwargs.get("widen_k", 0.0)
+        self._thrust_bias = float(kwargs.get("thrust_bias", 0.0))
+        self._thrust_bias_safe_dist = float(kwargs.get("thrust_bias_safe_dist", 0.0))
+        # Leaf policy rollout — extends each leaf's lookahead by N greedy-prior
+        # frames before the heuristic is called. 0 disables.
+        self._rollout_frames = int(kwargs.get("rollout_frames", 0))
+        # Adaptive early-exit: after every `check_every` sims, stop if one
+        # action dominates by visits and Q-gap. 0 disables.
+        self._ee_check_every = int(kwargs.get("early_exit_check_every", 0))
+        self._ee_visit_frac = float(kwargs.get("early_exit_visit_frac", 0.6))
+        self._ee_q_gap = float(kwargs.get("early_exit_q_gap", 0.0))
 
         use_momentum = kwargs.get("momentum_pathfinder", False)
         self._mcts = spaceace_rl.PyMCTSEngine(level, max_steps, use_momentum)
@@ -37,6 +50,7 @@ class MCTSAgent(BaseAgent):
         self._pending_action = None
         self._pending_repeats = 0
         self.debug_info = {}
+        self._mcts.reset_tree_cache()
 
     def step(self) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         # If repeating a previously chosen action, just step
@@ -66,12 +80,23 @@ class MCTSAgent(BaseAgent):
         speed_factor = 1.0 + speed / 300.0
         num_sims = int(num_sims * speed_factor)
 
-        action_idx, action_stats, root_heuristic = self._mcts.search_with_stats(
+        action_idx, action_stats, root_heuristic = self._mcts.search_with_reuse(
             current_state,
             num_sims,
             action_repeat,
             self._exploration,
             self._gamma,
+            0.5,   # shaping_weight
+            False, # goofy
+            self._thrust_bias,
+            self._ar_depth_bonus,
+            self._ar_max,
+            self._widen_k,
+            self._thrust_bias_safe_dist,
+            self._rollout_frames,
+            self._ee_check_every,
+            self._ee_visit_frac,
+            self._ee_q_gap,
         )
         action = ALL_ACTIONS[action_idx]
 
@@ -114,4 +139,8 @@ class MCTSAgent(BaseAgent):
         return self._env
 
     def close(self) -> None:
+        hits, misses = self._mcts.get_reuse_stats()
+        total = hits + misses
+        if total > 0:
+            print(f"[mcts] tree reuse: {hits}/{total} hits ({100.0 * hits / total:.1f}%)")
         self._env.close()

@@ -36,7 +36,7 @@ class DenseShapedReward(RewardShaper):
     CRASH_PENALTY = -200.0
     LEVEL_COMPLETE_BONUS = 1000.0
     PICKUP_BONUS = 100.0
-    PATH_DIST_DELTA_SCALE = 0.05
+    PATH_DIST_DELTA_SCALE = 0.2
 
     def __init__(self, pathfinder: Pathfinder, max_steps: int) -> None:
         self._pathfinder = pathfinder
@@ -88,20 +88,19 @@ class DenseShapedReward(RewardShaper):
         if collected > 0:
             reward += collected * self.PICKUP_BONUS
 
-        # Path distance delta — guide toward nearest pickup
-        pickup_states = list(env.get_pickup_states())
-        path_dist, _, _ = self._pathfinder.nearest_pickup_info(
-            float(obs[0]), float(obs[1]), pickup_states
-        )
+        # Path distance delta — guide toward nearest pickup.
+        if pickups_now >= 1:
+            pickup_states = list(env.get_pickup_states())
+            path_dist, _, _ = self._pathfinder.nearest_pickup_info(
+                float(obs[0]), float(obs[1]), pickup_states
+            )
 
-        if collected > 0:
-            # Reset baseline after collection so the jump to a farther
-            # pickup doesn't produce a huge negative delta
-            self._prev_path_dist = path_dist
-        else:
-            if self._prev_path_dist is not None:
-                reward += (self._prev_path_dist - path_dist) * self.PATH_DIST_DELTA_SCALE
-            self._prev_path_dist = path_dist
+            if collected > 0:
+                self._prev_path_dist = path_dist
+            else:
+                if self._prev_path_dist is not None:
+                    reward += (self._prev_path_dist - path_dist) * self.PATH_DIST_DELTA_SCALE
+                self._prev_path_dist = path_dist
 
         return reward
 

@@ -13,7 +13,7 @@ pub mod alphazero_mcts;
 use real_game::{RealSpaceAceGame, GameSnapshot};
 use real_map_parser::parse_map_json;
 use pathfinder::{PathfinderGrid, MomentumPathfinder, PathfinderKind};
-use mcts::{mcts_search, mcts_search_with_stats, get_heuristic_breakdown, MCTSParams};
+use mcts::{mcts_search, mcts_search_with_stats, mcts_search_parallel, get_heuristic_breakdown, MCTSParams, MCTSTree, set_rng_seed};
 use nn_evaluator::{NNEvaluator, build_alphazero_obs};
 use alphazero_mcts::{alphazero_search, AlphaZeroParams};
 
@@ -23,7 +23,7 @@ use alphazero_mcts::{alphazero_search, AlphaZeroParams};
 
 pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
     let state = game.get_state();
-    let mut obs = Vec::with_capacity(20);
+    let mut obs = Vec::with_capacity(36);
 
     // Ship state (5 values)
     obs.push(state.ship_x);
@@ -73,6 +73,11 @@ pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
         }
     }
     obs.push(min_tti);
+
+    // Fine wall distances: 16 extra rays (indices 20..36), interleaved with the
+    // existing 8 to form 24 evenly spaced rays at 15° in ship-local space.
+    let fine = game.get_wall_distances_fine_16();
+    obs.extend_from_slice(&fine);
 
     obs
 }
@@ -243,11 +248,34 @@ impl PyGameInstance {
     }
 }
 
+/// Opaque checkpoint of an `MCTSTree` plus the action the engine was about to
+/// commit when the checkpoint was taken. Lets the caller "rewind": commit an
+/// action, observe the real rollout, and if it turned out badly, restore the
+/// engine to this state and try a different action — reusing all the search
+/// work that led up to the decision instead of rebuilding from scratch.
+#[pyclass]
+#[derive(Clone)]
+struct PyMCTSTreeCheckpoint {
+    tree: MCTSTree,
+    last_chosen_action: Option<u8>,
+}
+
 #[pyclass]
 struct PyMCTSEngine {
     sim_game: RealSpaceAceGame,
     pathfinder: PathfinderKind,
     max_steps: u32,
+    /// Persistent MCTS tree reused across successive `search_with_stats` calls.
+    /// When the caller advances the real game by exactly the action_repeat used
+    /// by the tree's best action, we can re-root the tree at that child instead
+    /// of discarding it — effectively carrying simulation budget forward.
+    tree_cache: Option<MCTSTree>,
+    /// Action the cached tree's root selected. Next call, we re-root at the
+    /// child reached by this action (validated via snapshot equality).
+    last_chosen_action: Option<u8>,
+    /// How many times we've reused / rebuilt the tree — exposed for debugging.
+    reuse_hits: u64,
+    reuse_misses: u64,
 }
 
 #[pymethods]
@@ -265,15 +293,99 @@ impl PyMCTSEngine {
         } else {
             PathfinderKind::Spatial(PathfinderGrid::build(&sim_game))
         };
-        Ok(PyMCTSEngine { sim_game, pathfinder, max_steps })
+        Ok(PyMCTSEngine {
+            sim_game, pathfinder, max_steps,
+            tree_cache: None,
+            last_chosen_action: None,
+            reuse_hits: 0,
+            reuse_misses: 0,
+        })
     }
 
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5))]
-    fn search(&mut self, state: &PyGameState, num_simulations: u32,
-              action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64) -> u8 {
+    /// Clear the cached MCTS tree (call on episode reset to avoid reusing a
+    /// tree built from the previous episode's state).
+    fn reset_tree_cache(&mut self) {
+        self.tree_cache = None;
+        self.last_chosen_action = None;
+    }
+
+    fn get_reuse_stats(&self) -> (u64, u64) {
+        (self.reuse_hits, self.reuse_misses)
+    }
+
+    /// Snapshot the current cached tree so it can be restored later after the
+    /// caller commits an action and advances the real env. Returns None if no
+    /// tree has been built yet (e.g., before the first search).
+    fn checkpoint_tree(&self) -> Option<PyMCTSTreeCheckpoint> {
+        self.tree_cache.as_ref().map(|tree| PyMCTSTreeCheckpoint {
+            tree: tree.clone(),
+            last_chosen_action: self.last_chosen_action,
+        })
+    }
+
+    /// Install a previously taken checkpoint as the current tree. After this
+    /// returns, the next `search_with_reuse` call will resume from that tree
+    /// (reusing all simulations it had accumulated).
+    fn restore_tree_checkpoint(&mut self, cp: &PyMCTSTreeCheckpoint) {
+        self.tree_cache = Some(cp.tree.clone());
+        self.last_chosen_action = cp.last_chosen_action;
+    }
+
+    /// Search from a checkpoint with a subset of root actions masked out.
+    /// Lets the caller say: "I already tried these actions from this state and
+    /// they were bad — pick a different one." Returns the same tuple shape as
+    /// `search_with_reuse` but any stats entry for a masked action is omitted,
+    /// and the returned best_action is guaranteed not to be in `masked_actions`
+    /// (or 255 if no legal action remains).
+    #[pyo3(signature = (cp, masked_actions, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    fn search_from_checkpoint_masked(
+        &mut self,
+        cp: &PyMCTSTreeCheckpoint,
+        masked_actions: Vec<u8>,
+        num_simulations: u32, action_repeat: u32, c_explore: f64, gamma: f64,
+        shaping_weight: f64, goofy: bool, thrust_bias: f64,
+        action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
+        thrust_bias_safe_dist: f64,
+        rollout_frames: u32, early_exit_check_every: u32,
+        early_exit_visit_frac: f64, early_exit_q_gap: f64,
+    ) -> (u8, Vec<(u8, u32, f64)>, f64) {
+        self.tree_cache = Some(cp.tree.clone());
+        self.last_chosen_action = cp.last_chosen_action;
+
         let params = MCTSParams {
             num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight,
+            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
+            action_repeat_depth_bonus, action_repeat_max, widen_k,
+            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+        };
+        let tree = self.tree_cache.as_mut().unwrap();
+        tree.nodes.reserve(num_simulations as usize);
+        tree.run_simulations(&mut self.sim_game, &self.pathfinder, &params);
+
+        let (_best, stats, root_baseline) = tree.best_action_and_stats();
+
+        // Filter masked actions out of stats and pick a new best by visit count
+        // from the remaining. Ties broken by mean value (more reliable than
+        // visits alone when the masked action was the clear winner).
+        let filtered: Vec<(u8, u32, f64)> = stats.into_iter()
+            .filter(|(a, _, _)| !masked_actions.contains(a))
+            .collect();
+        let best_action = filtered.iter()
+            .max_by(|x, y| x.1.cmp(&y.1).then_with(|| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal)))
+            .map(|(a, _, _)| *a)
+            .unwrap_or(255);
+
+        self.last_chosen_action = if best_action == 255 { None } else { Some(best_action) };
+        (best_action, filtered, root_baseline)
+    }
+
+    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, thrust_bias_safe_dist=0.0))]
+    fn search(&mut self, state: &PyGameState, num_simulations: u32,
+              action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64, thrust_bias_safe_dist: f64) -> u8 {
+        let params = MCTSParams {
+            num_simulations, action_repeat, c_explore, gamma,
+            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
+            rollout_frames: 0, early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
         };
         mcts_search(
             &mut self.sim_game,
@@ -282,6 +394,107 @@ impl PyMCTSEngine {
             state.step_count,
             &params,
         )
+    }
+
+    /// Search with tree reuse — carries the previous decision's subtree forward
+    /// when the caller advances by exactly `action_repeat` frames of the prior
+    /// best action (validated by snapshot equality).
+    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    fn search_with_reuse(&mut self, state: &PyGameState, num_simulations: u32,
+                         action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64,
+                         action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
+                         thrust_bias_safe_dist: f64,
+                         rollout_frames: u32, early_exit_check_every: u32,
+                         early_exit_visit_frac: f64, early_exit_q_gap: f64)
+        -> (u8, Vec<(u8, u32, f64)>, f64)
+    {
+        let params = MCTSParams {
+            num_simulations, action_repeat, c_explore, gamma,
+            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
+            action_repeat_depth_bonus, action_repeat_max, widen_k,
+            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+        };
+
+        let reused = if let (Some(tree), Some(last_action)) = (self.tree_cache.as_mut(), self.last_chosen_action) {
+            tree.try_reroot_to_action(
+                last_action,
+                &state.snapshot,
+                &mut self.sim_game,
+                &self.pathfinder,
+                params.gamma,
+            )
+        } else {
+            false
+        };
+
+        if reused {
+            self.reuse_hits += 1;
+        } else {
+            self.reuse_misses += 1;
+            self.tree_cache = Some(MCTSTree::new(
+                state.snapshot.clone(),
+                state.step_count,
+                &mut self.sim_game,
+                &self.pathfinder,
+                goofy,
+            ));
+        }
+
+        let tree = self.tree_cache.as_mut().unwrap();
+        tree.nodes.reserve(num_simulations as usize);
+        tree.run_simulations(&mut self.sim_game, &self.pathfinder, &params);
+
+        let (best_action, stats, root_baseline) = tree.best_action_and_stats();
+        self.last_chosen_action = Some(best_action);
+        (best_action, stats, root_baseline)
+    }
+
+    /// Root-parallel MCTS: runs `num_threads` independent trees, each with a
+    /// share of `num_simulations`, and merges root action stats. Tree-cache is
+    /// bypassed on this path — every call builds fresh trees. For persistent
+    /// tree reuse, use `search_with_reuse` instead (serial).
+    ///
+    /// Returns (best_action, [(action_idx, total_visits, weighted_mean_value)],
+    /// mean_root_baseline).
+    #[pyo3(signature = (state, num_simulations, num_threads, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    fn search_parallel(&mut self, py: Python<'_>, state: &PyGameState,
+                       num_simulations: u32, num_threads: u32,
+                       action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64,
+                       goofy: bool, thrust_bias: f64,
+                       action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
+                       thrust_bias_safe_dist: f64,
+                       rollout_frames: u32, early_exit_check_every: u32,
+                       early_exit_visit_frac: f64, early_exit_q_gap: f64)
+        -> (u8, Vec<(u8, u32, f64)>, f64)
+    {
+        let params = MCTSParams {
+            num_simulations, action_repeat, c_explore, gamma,
+            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
+            action_repeat_depth_bonus, action_repeat_max, widen_k,
+            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+        };
+        // Release the GIL — rayon tasks are pure Rust and don't need Python.
+        py.allow_threads(|| {
+            mcts_search_parallel(
+                &self.sim_game,
+                &self.pathfinder,
+                state.snapshot.clone(),
+                state.step_count,
+                &params,
+                num_threads,
+            )
+        })
+    }
+
+    /// Transposition-table statistics for the currently cached tree, as
+    /// (hits, misses). Hits = expansions merged with an existing node of the
+    /// same quantized state; misses = fresh node creations. Resets when the
+    /// tree is rebuilt.
+    fn get_transposition_stats(&self) -> (u64, u64) {
+        match &self.tree_cache {
+            Some(t) => (t.transposition_hits, t.transposition_misses),
+            None => (0, 0),
+        }
     }
 
     fn get_debug_path(&self, state: &PyGameState) -> Vec<(f32, f32)> {
@@ -294,14 +507,15 @@ impl PyMCTSEngine {
     }
 
     /// Returns (best_action, [(action_idx, visits, mean_value)], root_heuristic)
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5))]
+    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, thrust_bias_safe_dist=0.0))]
     fn search_with_stats(&mut self, state: &PyGameState, num_simulations: u32,
-                         action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64)
+                         action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64, thrust_bias_safe_dist: f64)
         -> (u8, Vec<(u8, u32, f64)>, f64)
     {
         let params = MCTSParams {
             num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight,
+            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
+            rollout_frames: 0, early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
         };
         mcts_search_with_stats(
             &mut self.sim_game,
@@ -348,6 +562,8 @@ impl PyMCTSEngine {
         d.set_item("velocity_score", bd.velocity_score)?;
         d.set_item("orientation_score", bd.orientation_score)?;
         d.set_item("tti_penalty", bd.tti_penalty)?;
+        d.set_item("route_score", bd.route_score)?;
+        d.set_item("route_length", bd.route_length)?;
         d.set_item("path_dist", bd.path_dist)?;
         d.set_item("dir_x", bd.dir_x)?;
         d.set_item("dir_y", bd.dir_y)?;
@@ -395,6 +611,17 @@ impl PyMCTSEngine {
                     num_simulations: dynamic_sims as u32,
                     action_repeat: dynamic_ar,
                     c_explore, gamma, max_steps, shaping_weight,
+                    goofy: false,
+                    thrust_bias: 0.0,
+                    thrust_bias_safe_dist: 0.0,
+                    use_puct: false,
+                    action_repeat_depth_bonus: 0,
+                    action_repeat_max: 20,
+                    widen_k: 0.0,
+                    rollout_frames: 0,
+                    early_exit_check_every: 0,
+                    early_exit_visit_frac: 0.6,
+                    early_exit_q_gap: 0.0,
                 };
 
                 let action_idx = mcts_search(
@@ -749,19 +976,23 @@ impl PyAlphaZeroEngine {
                     let completed = self.sim_game.is_level_completed();
                     let crashed = self.sim_game.is_ship_exploded();
 
-                    // Assign discounted game outcome as value target
-                    // Wins get a speed bonus: finishing faster = higher value
+                    // Assign undiscounted game outcome as value target (standard AlphaZero MC return).
+                    // Wins get a speed bonus: finishing faster = higher value.
+                    // For truncations (no terminal signal), fall back to the normalized heuristic
+                    // at end-of-game so every example carries a learning signal.
                     let time_remaining = 1.0 - (step as f64 / max_steps as f64);
-                    let outcome: f64 = if completed {
+                    let outcome: f32 = if completed {
                         // Range [0.5, 1.0]: fast completion = 1.0, slow = 0.5
-                        0.5 + 0.5 * time_remaining
-                    } else if crashed { -1.0 }
-                    else { 0.0 }; // truncated
-                    let n = game_values.len();
-                    let discount: f64 = 0.99;
-                    for i in 0..n {
-                        let steps_from_end = (n - 1 - i) as f64;
-                        game_values[i] = (outcome * discount.powf(steps_from_end)) as f32;
+                        (0.5 + 0.5 * time_remaining) as f32
+                    } else if crashed {
+                        -1.0
+                    } else {
+                        // Truncated: use heuristic evaluation of final state as a soft target.
+                        let h = mcts::evaluate_state_pub(&self.sim_game, &self.pathfinder);
+                        normalize_heuristic(h)
+                    };
+                    for v in game_values.iter_mut() {
+                        *v = outcome;
                     }
 
                     all_obs.extend_from_slice(&game_obs);
@@ -787,7 +1018,17 @@ fn spaceace_rl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameInstance>()?;
     m.add_class::<PyGameState>()?;
     m.add_class::<PyMCTSEngine>()?;
+    m.add_class::<PyMCTSTreeCheckpoint>()?;
     m.add_class::<PyPathfinder>()?;
     m.add_class::<PyAlphaZeroEngine>()?;
+    m.add_function(pyo3::wrap_pyfunction!(py_set_rng_seed, m)?)?;
     Ok(())
+}
+
+/// Seed the MCTS RNG on the current thread. Useful for reproducible runs;
+/// omit to let the RNG stay time-seeded (different every process).
+#[pyfunction]
+#[pyo3(name = "set_rng_seed")]
+fn py_set_rng_seed(seed: u32) {
+    set_rng_seed(seed);
 }

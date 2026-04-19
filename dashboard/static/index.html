@@ -30,10 +30,11 @@ const AGENT_LABELS = { ppo:'PPO', hrl_pilot:'HRL Pilot', hrl_dqn:'HRL DQN', hrl_
 const AGENT_DESC = { ppo:'Policy gradient (SB3)', hrl_pilot:'Hierarchical waypoint pilot', hrl_dqn:'HRL + DQN pilot', hrl_ppo:'HRL + PPO pilot', alphazero:'Self-play MCTS + neural net' };
 function friendlyAgent(t) { return AGENT_LABELS[t]||t; }
 
-const TAG_LABELS = { 'rollout/ep_rew_mean':'Reward','rollout/ep_len_mean':'Ep Length','episode/completed':'Completed','episode/crashed':'Crashed','episode/thrust_ratio':'Thrust','episode/pickups_collected':'Pickups','train/loss':'Loss','curriculum/stage':'Stage','curriculum/smoothed_win_rate':'Win Rate' };
+const TAG_LABELS = { 'rollout/ep_rew_mean':'Reward','rollout/ep_len_mean':'Ep Length','episode/completed':'Completed','episode/crashed':'Crashed','episode/thrust_ratio':'Thrust','episode/pickups_collected':'Pickups','train/loss':'Loss','curriculum/stage':'Stage','curriculum/smoothed_win_rate':'Win Rate','alphazero/policy_loss':'Policy Loss','alphazero/value_loss':'Value Loss','alphazero/eval_reward':'Eval Reward','alphazero/eval_pickups':'Eval Pickups','alphazero/eval_win_rate':'Eval Win Rate','alphazero/smoothed_win_rate':'Smoothed Win Rate','alphazero/self_play_wins':'Self-play Wins','alphazero/self_play_crashes':'Self-play Crashes','alphazero/self_play_reward':'Self-play Reward','alphazero/self_play_pickups':'Self-play Pickups' };
 function tagLabel(t) { return TAG_LABELS[t] || t.split('/').pop(); }
-const CHART_COLORS = { 'rollout/ep_rew_mean':'#22d3ee','episode/completed':'#34d399','episode/crashed':'#f87171','rollout/ep_len_mean':'#a78bfa','train/loss':'#f87171','curriculum/stage':'#fbbf24','curriculum/smoothed_win_rate':'#34d399' };
+const CHART_COLORS = { 'rollout/ep_rew_mean':'#22d3ee','episode/completed':'#34d399','episode/crashed':'#f87171','rollout/ep_len_mean':'#a78bfa','train/loss':'#f87171','curriculum/stage':'#fbbf24','curriculum/smoothed_win_rate':'#34d399','alphazero/policy_loss':'#f87171','alphazero/value_loss':'#fbbf24','alphazero/eval_reward':'#22d3ee','alphazero/eval_win_rate':'#34d399','alphazero/smoothed_win_rate':'#34d399','alphazero/self_play_crashes':'#f87171','alphazero/self_play_reward':'#22d3ee','alphazero/self_play_wins':'#34d399','alphazero/eval_pickups':'#a78bfa','alphazero/self_play_pickups':'#a78bfa' };
 const DEFAULT_TAGS = ['rollout/ep_rew_mean','episode/completed','episode/crashed','rollout/ep_len_mean','curriculum/stage','curriculum/smoothed_win_rate'];
+const AZ_DEFAULT_TAGS = ['alphazero/smoothed_win_rate','alphazero/eval_reward','alphazero/policy_loss','alphazero/value_loss','alphazero/self_play_crashes','alphazero/self_play_reward'];
 
 // ── router ───────────────────────────────────────────────────────────────────
 function useRoute() { const [h,s]=useState(location.hash||'#/'); useEffect(()=>{const f=()=>s(location.hash||'#/');addEventListener('hashchange',f);return()=>removeEventListener('hashchange',f)},[]);return h; }
@@ -43,6 +44,8 @@ function navigate(p){location.hash=p;}
 function Nav({route}) {
     return html`<nav class="nav">
         <a href="#/" class="nav-title">SpaceAce</a>
+        <a href="#/leaderboard" class=${route==='#/leaderboard'?'active':''}>Leaderboard</a>
+        <a href="/play" target="_blank">Play</a>
         <span style="flex:1"></span>
         <span style="color:var(--text-dim);font-size:12px">Training Dashboard</span>
     </nav>`;
@@ -56,6 +59,9 @@ function Overview() {
     async function doSync(){setSyncing(true);await api('/runs/sync',{method:'POST'});await load();setSyncing(false);}
 
     const groups={};for(const r of runs){(groups[r.agent_type]||(groups[r.agent_type]=[])).push(r);}
+    // Surface agent types that have presets even if there are no runs yet,
+    // so users can always kick off training from the overview.
+    for(const t of Object.keys(TRAINING_PRESETS)){if(!groups[t])groups[t]=[];}
     const bestModels={};for(const m of models)if(m.is_best||/^(best|final)/.test(m.filename))bestModels[m.agent_type]=(bestModels[m.agent_type]||0)+1;
     const runningJobs=jobs.filter(j=>j.status==='running');
     const order=['ppo','alphazero','hrl_pilot','hrl_ppo','hrl_dqn','unknown'];
@@ -127,12 +133,13 @@ const TRAINING_PRESETS = {
     ppo: [
         { id:'single_quick', label:'Single level (quick)', desc:'Train on one level, good for testing', trainer:'ppo', args:{level:0,timesteps:500000} },
         { id:'single_long', label:'Single level (full)', desc:'Longer single-level run for real results', trainer:'ppo', args:{level:0,timesteps:5000000} },
-        { id:'curriculum', label:'Curriculum (recommended)', desc:'Progressive difficulty: generated maps → real levels. Advances when agent masters each stage.', trainer:'ppo_curriculum', args:{timesteps:10000000}, recommended:true },
+        { id:'curriculum', label:'Curriculum (recommended)', desc:'Progressive difficulty: generated maps → real levels. Advances when agent masters each stage.', trainer:'ppo_curriculum', args:{timesteps:500000000}, recommended:true },
         { id:'curriculum_short', label:'Curriculum (short)', desc:'Same progression, fewer total steps', trainer:'ppo_curriculum', args:{timesteps:2000000} },
     ],
     alphazero: [
-        { id:'quick', label:'Quick run', desc:'50 iterations of self-play + training on one level', trainer:'alphazero', args:{level:0,iterations:50} },
-        { id:'curriculum', label:'Curriculum (recommended)', desc:'Self-play across 50 generated levels, easy → hard', trainer:'alphazero', args:{iterations:200}, recommended:true },
+        { id:'quick', label:'Single level (quick)', desc:'50 iterations of self-play + training on one level', trainer:'alphazero', args:{level:0,iterations:50} },
+        { id:'curriculum', label:'Pickup curriculum (recommended)', desc:'Progressive pickup variants: for each level train base → +1 → +2 → +3 pickups before advancing. Mirrors PPO curriculum.', trainer:'alphazero_curriculum', args:{iterations:500,iters_per_stage:10,advance_win_rate:0.7,min_iters:2}, recommended:true },
+        { id:'curriculum_short', label:'Pickup curriculum (short)', desc:'Same pickup-variant progression with a smaller iteration budget for quicker feedback.', trainer:'alphazero_curriculum', args:{iterations:60,iters_per_stage:4,advance_win_rate:0.7,min_iters:2,base_levels:'3000,3001,3002'} },
     ],
     hrl_pilot: [
         { id:'corridors', label:'Corridor training (recommended)', desc:'Learn waypoint navigation on 100 generated corridor maps', trainer:'hrl_pilot', args:{levels:'4000-4099',timesteps:2000000}, recommended:true },
@@ -148,14 +155,14 @@ const TRAINING_PRESETS = {
     ],
 };
 
-const FIELD_LABELS = {level:'Level',levels:'Levels',timesteps:'Timesteps',action_repeat:'Action Repeat',obs:'Observation',reward:'Reward',iterations:'Iterations',games_per_iter:'Games/iter',num_sims:'MCTS Sims',max_steps:'Max Steps'};
+const FIELD_LABELS = {level:'Level',levels:'Levels',base_levels:'Base Levels',timesteps:'Timesteps',action_repeat:'Action Repeat',obs:'Observation',reward:'Reward',iterations:'Iterations',iters_per_stage:'Iters/stage',advance_win_rate:'Advance Win %',min_iters:'Min Iters',games_per_iter:'Games/iter',num_sims:'MCTS Sims',max_steps:'Max Steps',max_episode_steps:'Max Steps'};
 
 function TypePage({type}) {
     const [tab,setTab]=useState('runs');
     const [runs,setRuns]=useState([]); const [models,setModels]=useState([]); const [jobs,setJobs]=useState([]);
     // Training
     const trainer=TRAINER_MAP[type]; const [launching,setLaunching]=useState(false);
-    const [expandedJob,setExpandedJob]=useState(null); const [jobMetrics,setJobMetrics]=useState({});
+    const [expandedJob,setExpandedJob]=useState(null); const [jobMetrics,setJobMetrics]=useState({}); const [jobLog,setJobLog]=useState('');
     // Train preview
     const [trainReplay,setTrainReplay]=useState(null); const [trainFrame,setTrainFrame]=useState(0); const [trainPlaying,setTrainPlaying]=useState(false); const trainPlayRef=useRef(false); const [trainLoading,setTrainLoading]=useState(false); const trainLevelRef=useRef(null);
     // Watch
@@ -176,16 +183,28 @@ function TypePage({type}) {
     // poll running jobs
     useEffect(()=>{if(!jobs.some(j=>j.status==='running'))return;const t=setInterval(load,4000);return()=>clearInterval(t);},[jobs,load]);
 
-    // Fetch metrics for expanded job — uses run_name directly, endpoint handles sync
+    // Fetch metrics for expanded job. Trainers with tensorboard (PPO) read
+    // from the run-name endpoint; AlphaZero has no tensorboard so we parse
+    // its log into a time series and also show the log tail underneath.
     const loadJobMetrics=useCallback(async()=>{
         if(!expandedJob) return;
         const j=jobs.find(x=>x.id===expandedJob);
-        if(!j||!j.progress||!j.progress.run_name) return;
-        const md=await api('/metrics/by-run-name/'+encodeURIComponent(j.progress.run_name));
-        setJobMetrics(md.tags||{});
+        if(!j) return;
+        const runName=j.progress&&j.progress.run_name;
+        if(runName){
+            const md=await api('/metrics/by-run-name/'+encodeURIComponent(runName));
+            setJobMetrics(md.tags||{});
+        }else{
+            const [series,logResp]=await Promise.all([
+                api('/jobs/'+j.id+'/az-series').catch(()=>({tags:{}})),
+                api('/jobs/'+j.id+'/log?lines=120').catch(()=>({log:''})),
+            ]);
+            setJobMetrics(series.tags||{});
+            setJobLog(logResp.log||'');
+        }
     },[expandedJob,jobs]);
     useEffect(()=>{loadJobMetrics();},[loadJobMetrics]);
-    // Live-refresh charts while running
+    // Live-refresh charts / log while running
     useEffect(()=>{
         if(!expandedJob)return;
         const j=jobs.find(x=>x.id===expandedJob);
@@ -254,7 +273,7 @@ function TypePage({type}) {
         setTrainLoading(true);
         const agentForWatch = type === 'hrl_pilot' ? 'hrl' : type === 'hrl_dqn' ? 'hrl' : type === 'hrl_ppo' ? 'hrl' : type;
         try {
-            const resp=await api('/replay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_type:agentForWatch,level:parseInt(level)||0,max_steps:3000,model_path:'models/curriculum/best_model.zip'})});
+            const resp=await api('/replay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent_type:agentForWatch,level:parseInt(level)||0,max_steps:3000,model_path:'models/curriculum/latest_model'})});
             if(resp.replay){setTrainReplay(resp.replay);setTrainFrame(0);setTrainPlaying(true);trainLevelRef.current=level;}
         } catch(e) {}
         setTrainLoading(false);
@@ -362,7 +381,10 @@ function TypePage({type}) {
                     ${jobs.map(j=>{
                         const p=j.progress;
                         const isExpanded=expandedJob===j.id;
-                        const chartTags=isExpanded?Object.keys(jobMetrics).filter(t=>DEFAULT_TAGS.includes(t)):[];
+                        const hasRunName=j.progress&&j.progress.run_name;
+                        const isAZ=j.progress&&j.progress.trainer_kind==='alphazero';
+                        const tagFilter=hasRunName?DEFAULT_TAGS:AZ_DEFAULT_TAGS;
+                        const chartTags=isExpanded?Object.keys(jobMetrics).filter(t=>tagFilter.includes(t)):[];
                         return html`
                         <div>
                         <div class="run-row clickable" onClick=${()=>{setExpandedJob(isExpanded?null:j.id);if(!isExpanded)setJobMetrics({});}}>
@@ -371,7 +393,8 @@ function TypePage({type}) {
                                 <span class="run-row-meta">
                                     ${p&&p.pct!=null?html`${p.pct}% — `:''}
                                     ${p&&p.total_timesteps?html`${fmtSteps(p.total_timesteps)}/${fmtSteps(p.target_timesteps)} steps`:j.started_at?fmtDate(j.started_at):'-'}
-                                    ${p&&p.elapsed?html` / ${p.elapsed>60?fmtNum(p.elapsed/60,0)+'m':fmtNum(p.elapsed,0)+'s'}`:''}</span>
+                                    ${p&&p.elapsed?html` / ${p.elapsed>3600?fmtNum(p.elapsed/3600,1)+'h':p.elapsed>60?fmtNum(p.elapsed/60,0)+'m':fmtNum(p.elapsed,0)+'s'}`:''}\
+${p&&p.elapsed&&p.total_timesteps>0&&p.target_timesteps?(()=>{const eta=p.elapsed/p.total_timesteps*(p.target_timesteps-p.total_timesteps);return html` — <span style="color:var(--accent)">${eta>86400?fmtNum(eta/86400,1)+'d':eta>3600?fmtNum(eta/3600,1)+'h':eta>60?fmtNum(eta/60,0)+'m':fmtNum(eta,0)+'s'} remaining</span>`;})():''}</span>
                             </div>
                             ${p?html`
                                 <div class="run-row-metrics">
@@ -407,7 +430,13 @@ function TypePage({type}) {
                                     <div class="chart-grid">
                                         ${chartTags.map(t=>html`<${MetricChart} key=${t+'-'+((jobMetrics[t]||[]).length)} tag=${t} data=${jobMetrics[t]||[]}/>`)}
                                     </div>
-                                `:html`<p style="color:var(--text-dim);text-align:center;padding:16px">${j.status==='running'?'Syncing metrics...':'No metric data available'}</p>`}
+                                `:hasRunName?html`<p style="color:var(--text-dim);text-align:center;padding:16px">${j.status==='running'?'Syncing metrics...':'No metric data available'}</p>`:null}
+                                ${!hasRunName?html`
+                                    <div style="margin-top:12px">
+                                        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">${isAZ?'Log tail (parsed AlphaZero iterations shown above):':'Log tail:'}</div>
+                                        <pre style="background:var(--bg-deep,#0a0a0a);border:1px solid var(--border);border-radius:4px;padding:8px;font-size:11px;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:var(--text-dim)">${jobLog||(j.status==='running'?'Waiting for output...':'No log available')}</pre>
+                                    </div>
+                                `:null}
                             </div>
                         `:null}
                         </div>`;
@@ -457,7 +486,7 @@ function TypePage({type}) {
                 ${models.length>0?html`
                     <div class="card-title" style="margin-bottom:8px">Models</div>
                     <div class="runs-list">
-                        ${models.filter(m=>m.is_best||/^(best|final)/.test(m.filename)).map(m=>{
+                        ${models.filter(m=>m.is_best||/^(best|final|latest)/.test(m.filename)).map(m=>{
                             const modelPath=m.path.replace(/\.(zip|pt|onnx)$/,'');
                             const levelLabel=m.level||'root';
                             const isLoading=watchLoading&&watchingModel===modelPath;
@@ -502,12 +531,105 @@ function TypePage({type}) {
     </div>`;
 }
 
+// ── Leaderboard ─────────────────────────────────────────────────────────────
+function Leaderboard() {
+    const [entries,setEntries]=useState([]);
+    const [levels,setLevels]=useState([]);
+    const [selectedLevel,setSelectedLevel]=useState(null);
+
+    const load=useCallback(async()=>{
+        const url=selectedLevel!=null?'/leaderboard?level='+selectedLevel:'/leaderboard';
+        const data=await api(url);
+        const all=data.entries||[];
+        setEntries(all);
+        // Build level list from all entries (only on first load)
+        if(levels.length===0&&selectedLevel==null){
+            const lvlSet=new Set(all.map(e=>e.level));
+            setLevels([...lvlSet].sort((a,b)=>a-b));
+        }
+    },[selectedLevel]);
+    useEffect(()=>{load();},[load]);
+
+    // Group by level when showing all
+    const grouped={};
+    for(const e of entries)(grouped[e.level]||(grouped[e.level]=[])).push(e);
+    const sortedLevels=Object.keys(grouped).map(Number).sort((a,b)=>a-b);
+
+    function renderTable(rows, showLevel) {
+        // Sort: completed first (by steps asc), then others by pickups desc
+        const sorted=[...rows].sort((a,b)=>{
+            if(a.outcome==='completed'&&b.outcome!=='completed') return -1;
+            if(b.outcome==='completed'&&a.outcome!=='completed') return 1;
+            if(a.outcome==='completed'&&b.outcome==='completed') return a.steps-b.steps;
+            return b.pickups_collected-a.pickups_collected;
+        });
+        return html`<table>
+            <thead><tr>
+                <th>#</th>
+                ${showLevel?html`<th>Level</th>`:null}
+                <th>Agent</th>
+                <th>Model</th>
+                <th>Outcome</th>
+                <th>Steps</th>
+                <th>Pickups</th>
+                <th>Date</th>
+            </tr></thead>
+            <tbody>
+                ${sorted.map((e,i)=>html`<tr>
+                    <td>${i+1}</td>
+                    ${showLevel?html`<td>${e.level}</td>`:null}
+                    <td>${friendlyAgent(e.agent_type)}</td>
+                    <td style="color:var(--text-dim);font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.model_path||'-'}</td>
+                    <td><${Badge} status=${e.outcome}/></td>
+                    <td>${e.steps}</td>
+                    <td>${e.pickups_collected}/${e.pickups_total}</td>
+                    <td style="color:var(--text-dim)">${fmtDate(e.created_at)}</td>
+                </tr>`)}
+                ${sorted.length===0?html`<tr><td colspan=${showLevel?8:7} style="text-align:center;color:var(--text-dim);padding:30px">No entries yet. Watch an agent play to record a run.</td></tr>`:null}
+            </tbody>
+        </table>`;
+    }
+
+    return html`<div class="page">
+        <div class="page-header">
+            <h2>Leaderboard</h2>
+            <div style="display:flex;gap:8px;align-items:center">
+                <select class="btn btn-sm" value=${selectedLevel==null?'all':selectedLevel} onChange=${e=>{
+                    const v=e.target.value;
+                    setSelectedLevel(v==='all'?null:Number(v));
+                }}>
+                    <option value="all">All levels</option>
+                    ${levels.map(l=>html`<option value=${l}>Level ${l}</option>`)}
+                </select>
+                <button class="btn btn-sm" onClick=${load}>Refresh</button>
+            </div>
+        </div>
+
+        ${selectedLevel!=null?html`
+            <div class="card">
+                <div class="card-title">Level ${selectedLevel}</div>
+                ${renderTable(entries, false)}
+            </div>
+        `:html`
+            ${sortedLevels.map(lvl=>html`
+                <div class="card" style="margin-bottom:16px">
+                    <div class="card-title" style="cursor:pointer" onClick=${()=>setSelectedLevel(lvl)}>Level ${lvl}</div>
+                    ${renderTable(grouped[lvl], false)}
+                </div>
+            `)}
+            ${sortedLevels.length===0?html`<div class="card"><p style="padding:40px;text-align:center;color:var(--text-dim)">No leaderboard entries yet. Watch an agent play to record runs.</p></div>`:null}
+        `}
+    </div>`;
+}
+
 // ── App ──────────────────────────────────────────────────────────────────────
 function App() {
     const route=useRoute();
     let page;
     if(route.startsWith('#/type/')){
         page=html`<${TypePage} type=${decodeURIComponent(route.split('/')[2])}/>`;
+    } else if(route==='#/leaderboard'){
+        page=html`<${Leaderboard}/>`;
     } else {
         page=html`<${Overview}/>`;
     }

@@ -20,6 +20,7 @@ TRAINER_COMMANDS = {
     "ppo": ["-m", "spaceace.agents.ppo.train"],
     "ppo_curriculum": ["-m", "spaceace.agents.ppo.curriculum_train"],
     "alphazero": ["-m", "spaceace.agents.alphazero.train"],
+    "alphazero_curriculum": ["-m", "spaceace.agents.alphazero.curriculum_train"],
     "hrl_pilot": ["-m", "spaceace.agents.hrl.train_pilot"],
 }
 
@@ -41,6 +42,7 @@ TRAINER_ARGS = {
         "timesteps": {"flag": "--timesteps", "type": "int"},
         "advance_win_rate": {"flag": "--advance-win-rate", "type": "float"},
         "min_steps_per_stage": {"flag": "--min-steps-per-stage", "type": "int"},
+        "max_episode_steps": {"flag": "--max-episode-steps", "type": "int"},
         "action_repeat": {"flag": "--action-repeat", "type": "int"},
         "seed": {"flag": "--seed", "type": "int"},
     },
@@ -54,6 +56,23 @@ TRAINER_ARGS = {
         "batch_size": {"flag": "--batch-size", "type": "int"},
         "lr": {"flag": "--lr", "type": "float"},
         "max_steps": {"flag": "--max-steps", "type": "int"},
+    },
+    "alphazero_curriculum": {
+        "base_levels": {"flag": "--base-levels", "type": "str"},
+        "iterations": {"flag": "--iterations", "type": "int"},
+        "iters_per_stage": {"flag": "--iters-per-stage", "type": "int"},
+        "advance_win_rate": {"flag": "--advance-win-rate", "type": "float"},
+        "min_iters": {"flag": "--min-iters", "type": "int"},
+        "games_per_iter": {"flag": "--games-per-iter", "type": "int"},
+        "num_sims": {"flag": "--num-sims", "type": "int"},
+        "action_repeat": {"flag": "--action-repeat", "type": "int"},
+        "max_episode_steps": {"flag": "--max-episode-steps", "type": "int"},
+        "epochs": {"flag": "--epochs", "type": "int"},
+        "batch_size": {"flag": "--batch-size", "type": "int"},
+        "lr": {"flag": "--lr", "type": "float"},
+        "buffer_size": {"flag": "--buffer-size", "type": "int"},
+        "eval_games": {"flag": "--eval-games", "type": "int"},
+        "seed": {"flag": "--seed", "type": "int"},
     },
     "hrl_pilot": {
         "levels": {"flag": "--levels", "type": "str"},
@@ -94,12 +113,15 @@ def _fmt_steps(n: int) -> str:
 def _make_display_name(trainer: str, args: dict) -> str:
     """Build a human-readable name for the job."""
     labels = {"ppo": "PPO", "ppo_curriculum": "PPO Curriculum",
-              "alphazero": "AlphaZero", "hrl_pilot": "HRL Pilot"}
+              "alphazero": "AlphaZero", "alphazero_curriculum": "AlphaZero Curriculum",
+              "hrl_pilot": "HRL Pilot"}
     parts = [labels.get(trainer, trainer)]
     if "level" in args and args["level"] is not None:
         parts.append(f"level {args['level']}")
     if "levels" in args and args["levels"]:
         parts.append(f"levels {args['levels']}")
+    if "base_levels" in args and args["base_levels"]:
+        parts.append(f"bases {args['base_levels']}")
     if "stages" in args and args["stages"]:
         parts.append(f"stages {args['stages']}")
     if "timesteps" in args and args["timesteps"]:
@@ -297,10 +319,192 @@ def _read_log(log_path: str | None) -> str:
 import re
 
 _METRIC_LINE = re.compile(r"^\|\s+(\S+)\s+\|\s+(\S+)\s+\|$")
-_TIMESTEPS_TARGET = re.compile(r"Timesteps:\s+([\d,]+)")
+_TIMESTEPS_TARGET = re.compile(r"(?:Total )?[Tt]imesteps:\s+([\d,]+)")
 _TB_RUN_NAME = re.compile(r"Logging to tensorboard_logs/(\S+)")
 _STAGE_LINE = re.compile(r"Stage (\d+): levels \[([^\]]+)\], max_steps=(\d+)")
 _ADVANCE_LINE = re.compile(r">>> Advancing to stage (\d+)/(\d+): levels \[([^\]]+)\]")
+
+# AlphaZero-specific log parsing — AZ doesn't use SB3 or tensorboard.
+_AZ_HEADER = re.compile(r"=== AlphaZero Training ===")
+_AZ_BUDGET = re.compile(r"Total iteration budget:\s+(\d+)")
+_AZ_STAGE_HEADER = re.compile(
+    r"STAGE (\d+)/(\d+): levels=\[([^\]]+)\]\s+\(max_steps=(\d+),\s+sims=(\d+)\)"
+)
+_AZ_ITERATION = re.compile(
+    r"Iteration (\d+)\s+\(stage (\d+),\s+L(\d+),\s+attempt (\d+)/(\d+)\)"
+)
+_AZ_EVAL = re.compile(
+    r"Eval\s+\(L(\d+)\):\s+reward=([-\d.]+),\s+pickups=([\d.]+),"
+    r"\s+wins=(\d+)/(\d+)\s+\((\d+)%\),\s+smoothed=(\d+)%"
+)
+_AZ_LOSS = re.compile(r"Loss:\s+policy=([-\d.]+)\s+value=([-\d.]+)")
+_AZ_GAMES = re.compile(
+    r"Games:\s+(\d+)/(\d+),\s+examples:\s+(\d+),\s+wins:\s+(\d+),"
+    r"\s+crashes:\s+(\d+),\s+mean_reward:\s+(-?[\d.]+),\s+mean_pickups:\s+([\d.]+)"
+)
+
+
+def parse_alphazero_series(log_path: str | None) -> dict[str, list[dict]]:
+    """Per-iteration time series for an AlphaZero log.
+
+    Walks the log sequentially, associating each metric block with the most
+    recent `Iteration N` header. Returns a dict keyed by tag (matching the
+    `alphazero/...` names the dashboard knows about).
+    """
+    text = _read_log(log_path)
+    if not text or not _AZ_HEADER.search(text):
+        return {}
+
+    series: dict[str, list[dict]] = {
+        "alphazero/policy_loss": [],
+        "alphazero/value_loss": [],
+        "alphazero/eval_reward": [],
+        "alphazero/eval_pickups": [],
+        "alphazero/eval_win_rate": [],
+        "alphazero/smoothed_win_rate": [],
+        "alphazero/self_play_wins": [],
+        "alphazero/self_play_crashes": [],
+        "alphazero/self_play_reward": [],
+        "alphazero/self_play_pickups": [],
+    }
+
+    current_iter: int | None = None
+    self_play_seen = False  # first Games line per iter is self-play, second is eval
+
+    for line in text.splitlines():
+        m = _AZ_ITERATION.search(line)
+        if m:
+            current_iter = int(m.group(1))
+            self_play_seen = False
+            continue
+        if current_iter is None:
+            continue
+        m = _AZ_GAMES.search(line)
+        if m and not self_play_seen:
+            self_play_seen = True
+            step = current_iter
+            series["alphazero/self_play_wins"].append({"step": step, "value": int(m.group(4))})
+            series["alphazero/self_play_crashes"].append({"step": step, "value": int(m.group(5))})
+            try:
+                series["alphazero/self_play_reward"].append({"step": step, "value": float(m.group(6))})
+            except ValueError:
+                pass
+            try:
+                series["alphazero/self_play_pickups"].append({"step": step, "value": float(m.group(7))})
+            except ValueError:
+                pass
+            continue
+        m = _AZ_LOSS.search(line)
+        if m:
+            try:
+                series["alphazero/policy_loss"].append({"step": current_iter, "value": float(m.group(1))})
+                series["alphazero/value_loss"].append({"step": current_iter, "value": float(m.group(2))})
+            except ValueError:
+                pass
+            continue
+        m = _AZ_EVAL.search(line)
+        if m:
+            step = current_iter
+            try:
+                series["alphazero/eval_reward"].append({"step": step, "value": float(m.group(2))})
+            except ValueError:
+                pass
+            try:
+                series["alphazero/eval_pickups"].append({"step": step, "value": float(m.group(3))})
+            except ValueError:
+                pass
+            try:
+                series["alphazero/eval_win_rate"].append({"step": step, "value": float(m.group(6)) / 100.0})
+            except ValueError:
+                pass
+            try:
+                series["alphazero/smoothed_win_rate"].append({"step": step, "value": float(m.group(7)) / 100.0})
+            except ValueError:
+                pass
+            continue
+
+    # Drop empty series so the frontend doesn't render blank charts.
+    return {k: v for k, v in series.items() if v}
+
+
+def _parse_alphazero_progress(text: str) -> dict | None:
+    """Parse progress from an AlphaZero training log.
+
+    Returns the same dict shape as `parse_progress` (so the dashboard UI
+    works unchanged). `total_timesteps` / `target_timesteps` are iterations
+    rather than env steps. `run_name` is None because AZ doesn't log to
+    tensorboard; the dashboard should show a log-tail fallback.
+    """
+    budget = None
+    m = _AZ_BUDGET.search(text)
+    if m:
+        budget = int(m.group(1))
+
+    # Latest stage header seen (authoritative for current stage metadata).
+    stage_matches = list(_AZ_STAGE_HEADER.finditer(text))
+    total_stages = None
+    stage_idx = None
+    current_levels: list[int] | None = None
+    current_max_steps: int | None = None
+    if stage_matches:
+        last = stage_matches[-1]
+        stage_idx = int(last.group(1))  # 1-indexed in log
+        total_stages = int(last.group(2))
+        current_levels = [int(x.strip()) for x in last.group(3).split(",")]
+        current_max_steps = int(last.group(4))
+
+    # Latest iteration seen.
+    iter_matches = list(_AZ_ITERATION.finditer(text))
+    latest_iter = None
+    if iter_matches:
+        latest_iter = int(iter_matches[-1].group(1))
+
+    # Latest eval line (reward, win rate, smoothed win rate).
+    eval_matches = list(_AZ_EVAL.finditer(text))
+    reward = None
+    win_rate = None
+    if eval_matches:
+        last = eval_matches[-1]
+        try:
+            reward = float(last.group(2))
+        except ValueError:
+            pass
+        try:
+            win_rate = float(last.group(7)) / 100.0
+        except ValueError:
+            pass
+
+    # Only treat this as an AZ job if we saw *something* (the header plus any
+    # downstream line). The header alone is printed instantly at startup, so
+    # we still want to surface a progress block even before iter 0 finishes.
+    if latest_iter is None and stage_idx is None and budget is None:
+        return None
+
+    # Cumulative iteration count as a pseudo-timestep for the progress bar.
+    total = (latest_iter + 1) if latest_iter is not None else 0
+    pct = None
+    if budget:
+        pct = round(total / budget * 100, 1)
+
+    return {
+        "total_timesteps": total,
+        "target_timesteps": budget,
+        "pct": pct,
+        "reward": reward,
+        "completed": None,
+        "crashed": None,
+        "ep_len": None,
+        "fps": None,
+        "elapsed": None,
+        "run_name": None,
+        "trainer_kind": "alphazero",
+        "stage": stage_idx,
+        "total_stages": total_stages,
+        "win_rate": win_rate,
+        "current_levels": current_levels,
+        "current_max_steps": current_max_steps,
+        "conquered": (stage_idx - 1) if stage_idx else 0,
+    }
 
 
 def parse_progress(log_path: str | None) -> dict | None:
@@ -323,6 +527,11 @@ def parse_progress(log_path: str | None) -> dict | None:
     text = _read_log(log_path)
     if not text:
         return None
+
+    # Route AlphaZero logs to a dedicated parser — the SB3-shaped regexes
+    # below won't match its output.
+    if _AZ_HEADER.search(text):
+        return _parse_alphazero_progress(text)
 
     # Find the target timesteps from the header
     target = None

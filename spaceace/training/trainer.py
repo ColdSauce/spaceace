@@ -15,6 +15,7 @@ class LevelStage:
     max_episode_steps: int | None = None
     advance_win_rate: float = 0.7
     min_steps: int = 50_000
+    min_iters: int = 1
 
 
 @dataclass
@@ -43,7 +44,7 @@ class TrainingConfig:
 
     level: int = 0
     total_steps: int = 500_000
-    n_envs: int = 0  # 0 = auto-detect (cpu_count)
+    n_envs: int = 16  # paired with DummyVecEnv + [64,64] net; tuned on M1
     learning_rate: float = 3e-4
     max_episode_steps: int = 3000
     action_repeat: int = 5

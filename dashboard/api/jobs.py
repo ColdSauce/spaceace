@@ -12,6 +12,7 @@ from dashboard.job_runner import (
     TRAINER_COMMANDS,
     get_log_tail,
     launch_job,
+    parse_alphazero_series,
     parse_progress,
     reap_stale_jobs,
     stop_job,
@@ -57,6 +58,17 @@ def get_job(job_id: int):
 def get_job_log(job_id: int):
     lines = request.args.get("lines", 80, type=int)
     return jsonify({"log": get_log_tail(job_id, lines)})
+
+
+@jobs_bp.route("/jobs/<int:job_id>/az-series")
+def get_job_az_series(job_id: int):
+    """Per-iteration AlphaZero metrics parsed from the job log."""
+    db = get_db()
+    row = db.execute("SELECT log_path FROM jobs WHERE id=?", (job_id,)).fetchone()
+    db.close()
+    if not row:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"tags": parse_alphazero_series(row["log_path"])})
 
 
 @jobs_bp.route("/jobs/<int:job_id>/sync", methods=["POST"])

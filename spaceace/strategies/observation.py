@@ -11,10 +11,14 @@ from spaceace.strategies.base import ObservationBuilder, Pathfinder
 
 
 class RawObs(ObservationBuilder):
-    """No-op passthrough of the 20-dim Rust observation (includes min_tti at index 19)."""
+    """No-op passthrough of the 36-dim Rust observation.
+
+    Layout: 0..19 ship/pickup/wall-8/min_tti (as before), 20..36 the 16 fine-grained
+    wall raycasts (interleaved with the 8 coarse rays for 24 total at 15° spacing).
+    """
 
     def __init__(self) -> None:
-        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(20,), dtype=np.float32)
+        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(36,), dtype=np.float32)
 
     def reset(self, raw_obs: np.ndarray, info: dict, env) -> np.ndarray:
         return raw_obs.astype(np.float32, copy=False)
@@ -28,18 +32,19 @@ RawObs19 = RawObs
 
 
 class PathAugmentedObs23(ObservationBuilder):
-    """Drops absolute positions, adds 8 pathfinder/TTI/time features. Total 23 dims.
+    """Drops absolute positions, adds 8 pathfinder/TTI/time features + 16 fine rays. Total 40 dims.
 
-    Composition: obs[2:5] (vx, vy, rot) + obs[7:8] (pickup dist) + obs[8:16] (wall)
-    + obs[16:19] (pickups remaining, normalized x/y) + 8 derived features.
+    Composition: obs[2:5] (vx, vy, rot) + obs[7:8] (pickup dist) + obs[8:16] (wall-8)
+    + obs[16:19] (pickups remaining, normalized x/y) + 8 derived features
+    + obs[20:36] (16 fine wall rays, scaled).
     """
 
     def __init__(self, pathfinder: Pathfinder, max_steps: int) -> None:
-        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(24,), dtype=np.float32)
+        self.space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(40,), dtype=np.float32)
         self._pathfinder = pathfinder
         self._max_steps = max_steps
         self._steps = 0
-        self._buf = np.empty(24, dtype=np.float32)
+        self._buf = np.empty(40, dtype=np.float32)
 
     def reset(self, raw_obs: np.ndarray, info: dict, env) -> np.ndarray:
         self._steps = 0
@@ -85,10 +90,14 @@ class PathAugmentedObs23(ObservationBuilder):
         buf[16] = min(path_dist / 5000.0, 1.0)
         buf[17] = dir_x
         buf[18] = dir_y
-        buf[19] = speed
-        buf[20] = speed_toward
+        buf[19] = speed / 300.0
+        buf[20] = speed_toward / 300.0
         buf[21] = sin_rot * dir_x + (-cos_rot) * dir_y  # heading alignment
         buf[22] = min(min_tti, 2.0) / 2.0
-        buf[23] = max(0.0, 1.0 - self._steps / 5000.0)
+        buf[23] = max(0.0, 1.0 - self._steps / self._max_steps)
+
+        # 16 fine wall rays (indices 24..40), scaled like the coarse 8.
+        buf[24:40] = obs[20:36]
+        buf[24:40] /= 1000.0
 
         return buf.copy()

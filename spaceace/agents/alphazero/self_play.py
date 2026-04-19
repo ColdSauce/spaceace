@@ -141,11 +141,13 @@ def _unpack_rust_results(
 
 def _worker_play_games(args: tuple) -> tuple[list[float], list[float], list[float], list[tuple]]:
     """Worker function for parallel self-play. Runs entirely in Rust."""
-    level, num_games, num_simulations, c_puct, action_repeat, max_steps, model_path = args
+    (level, num_games, num_simulations, c_puct, action_repeat, max_steps,
+     model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon) = args
     engine = spaceace_rl.PyAlphaZeroEngine(level, max_steps, model_path)
     obs_flat, pol_flat, values, stats = engine.play_games(
         num_games, num_simulations, c_puct, action_repeat,
-        max_steps=max_steps,
+        temp_threshold=temp_threshold, max_steps=max_steps,
+        dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon,
     )
     return obs_flat, pol_flat, values, stats
 
@@ -159,6 +161,9 @@ def run_self_play(
     max_steps: int = 3000,
     model_path: Optional[str] = None,
     num_workers: int = 0,
+    temp_threshold: int = 30,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.25,
 ) -> tuple[list[GameExample], list[GameStats]]:
     """Run multiple self-play games. Returns (examples, per_game_stats).
 
@@ -172,7 +177,8 @@ def run_self_play(
         engine = spaceace_rl.PyAlphaZeroEngine(level, max_steps, model_path)
         obs_flat, pol_flat, values, stats_raw = engine.play_games(
             num_games, num_simulations, c_puct, action_repeat,
-            max_steps=max_steps,
+            temp_threshold=temp_threshold, max_steps=max_steps,
+            dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon,
         )
         examples, stats = _unpack_rust_results(obs_flat, pol_flat, values, stats_raw)
     else:
@@ -183,7 +189,8 @@ def run_self_play(
         games_per_worker = [g for g in games_per_worker if g > 0]
 
         worker_args = [
-            (level, g, num_simulations, c_puct, action_repeat, max_steps, model_path)
+            (level, g, num_simulations, c_puct, action_repeat, max_steps,
+             model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon)
             for g in games_per_worker
         ]
 

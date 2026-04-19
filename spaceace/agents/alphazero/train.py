@@ -42,7 +42,7 @@ def parse_args():
     p.add_argument("--epochs", type=int, default=10)
     p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--lr", type=float, default=1e-3)
-    p.add_argument("--buffer-size", type=int, default=5,
+    p.add_argument("--buffer-size", type=int, default=30,
                    help="Keep examples from last N iterations")
     p.add_argument("--eval-games", type=int, default=20)
     p.add_argument("--resume", type=int, default=0,
@@ -52,30 +52,7 @@ def parse_args():
     return p.parse_args()
 
 
-# Generated curriculum levels (3000-3164) with per-stage settings
-# 25 levels per strategy + 10 transitional levels between each pair
-CURRICULUM_STAGES = [
-    # (level_range, max_steps, num_sims_multiplier, description)
-    (range(3000, 3025), 500, 5, "simple"),
-    (range(3025, 3035), 1000, 3, "simple_to_room"),
-    (range(3035, 3060), 1500, 2, "room"),
-    (range(3060, 3070), 1500, 2, "room_to_maze"),
-    (range(3070, 3095), 2000, 1, "maze"),
-    (range(3095, 3105), 2000, 1, "maze_to_cave"),
-    (range(3105, 3130), 3000, 1, "cave"),
-    (range(3130, 3140), 3000, 1, "cave_to_gauntlet"),
-    (range(3140, 3165), 3000, 1, "gauntlet"),
-]
-
-DEFAULT_CURRICULUM = list(range(3000, 3165))
-
-
-def get_level_settings(level: int, base_max_steps: int = 3000, base_sims: int = 400) -> tuple[int, int]:
-    """Return (max_steps, num_sims) for a level based on its difficulty stage."""
-    for level_range, max_steps, sims_mult, _ in CURRICULUM_STAGES:
-        if level in level_range:
-            return max_steps, base_sims * sims_mult
-    return base_max_steps, base_sims
+DEFAULT_BASE_LEVELS = list(range(3000, 3165))
 
 
 def generate_curriculum_maps():
@@ -124,6 +101,24 @@ def train_network(
     target_policies = torch.tensor(np.array([e.mcts_policy for e in examples]), dtype=torch.float32)
     target_values = torch.tensor(np.array([e.value_target for e in examples]), dtype=torch.float32)
 
+    # Diagnostics: value/policy target distributions tell you whether the
+    # signal is alive. If val_std collapses to ~0 or pol_entropy is flat at
+    # log(6)=1.79, the network has no useful gradient to follow.
+    val_mean = float(target_values.mean())
+    val_std = float(target_values.std())
+    val_min = float(target_values.min())
+    val_max = float(target_values.max())
+    frac_nonzero = float((target_values.abs() > 1e-6).float().mean())
+    eps = 1e-9
+    pol_entropy = float(
+        -(target_policies * (target_policies + eps).log()).sum(dim=1).mean()
+    )
+    print(
+        f"  Targets: value mean={val_mean:+.3f} std={val_std:.3f} "
+        f"range=[{val_min:+.3f},{val_max:+.3f}] nonzero={frac_nonzero:.2f} | "
+        f"policy entropy={pol_entropy:.3f} (uniform={np.log(target_policies.shape[1]):.3f})"
+    )
+
     dataset = TensorDataset(observations, target_policies, target_values)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -143,12 +138,17 @@ def train_network(
 
             pred_policy, pred_value = model(obs_batch)
 
-            # Policy loss: cross-entropy with MCTS policy targets
-            policy_loss = -torch.sum(pol_batch * F.log_softmax(pred_policy, dim=1)) / obs_batch.shape[0]
-            # Value loss: MSE
+            log_pred = F.log_softmax(pred_policy, dim=1)
+            # Policy loss: KL to MCTS visit distribution.
+            policy_loss = F.kl_div(log_pred, pol_batch, reduction="batchmean")
+            # Entropy bonus: keep policy from collapsing before MCTS can explore.
+            pred_probs = log_pred.exp()
+            entropy = -(pred_probs * log_pred).sum(dim=1).mean()
+            # Value loss: MSE, downweighted (AZ paper uses 0.5 to stop value head
+            # from dominating when targets cluster tightly at the heuristic).
             value_loss = F.mse_loss(pred_value, val_batch)
 
-            loss = policy_loss + value_loss
+            loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
 
             optimizer.zero_grad()
             loss.backward()
@@ -204,17 +204,30 @@ def evaluate_model(
 def main():
     from pathlib import Path
     from spaceace.agents.alphazero.trainer import AlphaZeroTrainer
+    from spaceace.training.curriculum import build_curriculum, ensure_pickup_variants
     from spaceace.training.trainer import AlphaZeroHparams, LevelStage, TrainingConfig
 
     args = parse_args()
 
-    # Build curriculum from CLI args
-    curriculum = None
+    # Build curriculum from CLI args.
+    # - `--level N`: single-stage curriculum on L{N}
+    # - `--curriculum a b c`: one stage per listed level
+    # - otherwise: default pickup-variant curriculum over DEFAULT_BASE_LEVELS
     level = args.level if args.level is not None else 0
-    if args.curriculum is not None:
-        curriculum = [LevelStage(levels=args.curriculum)]
-    elif args.level is None:
-        curriculum = [LevelStage(levels=DEFAULT_CURRICULUM)]
+    if args.level is not None:
+        curriculum = [LevelStage(levels=[args.level], max_episode_steps=args.max_steps)]
+    elif args.curriculum is not None:
+        curriculum = [
+            LevelStage(levels=[lvl], max_episode_steps=args.max_steps)
+            for lvl in args.curriculum
+        ]
+    else:
+        ensure_pickup_variants(DEFAULT_BASE_LEVELS)
+        curriculum = build_curriculum(
+            DEFAULT_BASE_LEVELS,
+            advance_win_rate=args.win_threshold,
+            max_episode_steps=args.max_steps,
+        )
 
     config = TrainingConfig(
         level=level,

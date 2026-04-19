@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "spaceace_dashboard.db"
+# SQLite requires reliable fsync + POSIX file locking. RunPod's FUSE network
+# volume doesn't provide either, which causes "database disk image is malformed"
+# under concurrent writes. Override DB_PATH to a local-disk path on the pod.
+DB_PATH = Path(os.environ.get(
+    "DASHBOARD_DB_PATH",
+    str(Path(__file__).parent / "spaceace_dashboard.db"),
+))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS training_runs (
@@ -69,16 +76,40 @@ CREATE TABLE IF NOT EXISTS model_checkpoints (
 
 
 def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
+    # 30s busy_timeout so the background sync thread doesn't fail with
+    # "database is locked" when an API request happens to hold a lock.
+    conn = sqlite3.connect(str(DB_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
 MIGRATIONS = [
     "ALTER TABLE training_runs ADD COLUMN notes TEXT DEFAULT ''",
     "ALTER TABLE model_checkpoints ADD COLUMN compatible INTEGER DEFAULT 1",
+    """CREATE TABLE IF NOT EXISTS leaderboard (
+        id          INTEGER PRIMARY KEY,
+        level       INTEGER NOT NULL,
+        agent_type  TEXT NOT NULL,
+        model_path  TEXT,
+        outcome     TEXT NOT NULL,
+        steps       INTEGER NOT NULL,
+        pickups_collected INTEGER NOT NULL,
+        pickups_total     INTEGER NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    """CREATE TABLE IF NOT EXISTS ghost_replays (
+        id           INTEGER PRIMARY KEY,
+        level        INTEGER NOT NULL,
+        ghost_type   TEXT NOT NULL,
+        steps        INTEGER NOT NULL,
+        time_seconds REAL NOT NULL,
+        frames_json  TEXT NOT NULL,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(level, ghost_type)
+    )""",
     """CREATE TABLE IF NOT EXISTS jobs (
         id          INTEGER PRIMARY KEY,
         trainer     TEXT NOT NULL,

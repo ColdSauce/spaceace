@@ -18,9 +18,13 @@ def load_agent_module(dotted_path: str) -> None:
 from spaceace.agents import random_agent  # noqa: E402,F401
 from spaceace.agents import human  # noqa: E402,F401
 from spaceace.agents.mcts import agent as _mcts_agent  # noqa: E402,F401
+from spaceace.agents.mcts import goofy_agent as _goofy_mcts_agent  # noqa: E402,F401
+from spaceace.agents.mcts import eager_agent as _eager_mcts_agent  # noqa: E402,F401
+from spaceace.agents.mcts import rewind_agent as _rewind_mcts_agent  # noqa: E402,F401
 from spaceace.agents.ppo import agent as _ppo_agent  # noqa: E402,F401
 from spaceace.agents.alphazero import agent as _az_agent  # noqa: E402,F401
 from spaceace.agents.hrl import agent as _hrl_agent  # noqa: E402,F401
 from spaceace.agents.beam import agent as _beam_agent  # noqa: E402,F401
+from spaceace.agents.astar import agent as _astar_agent  # noqa: E402,F401
 
 __all__ = ["AGENT_REGISTRY", "BaseAgent", "register_agent", "load_agent_module"]

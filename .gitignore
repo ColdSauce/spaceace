@@ -8,3 +8,5 @@ tensorboard_logs/
 .venv/
 dashboard/*.db
 dashboard/job_logs/
+data/
+viz/

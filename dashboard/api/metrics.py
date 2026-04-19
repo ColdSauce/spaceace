@@ -53,15 +53,15 @@ def get_metrics(run_id: int):
 
 @metrics_bp.route("/metrics/by-run-name/<run_name>")
 def get_metrics_by_name(run_name: str):
-    """Fetch metrics by TensorBoard run name. Syncs first to pick up latest data."""
-    from dashboard.sync import sync_runs
-    sync_runs()
+    """Fetch metrics by TensorBoard run name. Syncs ONLY this run (cheap)."""
+    from dashboard.sync import sync_one_run
+    sync_one_run(run_name)
 
     db = get_db()
     row = db.execute("SELECT id FROM training_runs WHERE run_name = ?", (run_name,)).fetchone()
     if not row:
         db.close()
-        return jsonify({"tags": {}})
+        return jsonify({"tags": {}, "error": f"run '{run_name}' not found in tensorboard_logs/"})
     run_id = row["id"]
     rows = db.execute(
         "SELECT tag, step, wall_time, value FROM metric_snapshots WHERE run_id = ? ORDER BY tag, step",

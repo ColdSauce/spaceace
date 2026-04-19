@@ -804,6 +804,43 @@ impl PathfinderKind {
         }
     }
 
+    /// Route tangent (look-ahead direction along the optimal path) — spatial
+    /// backend only. Momentum falls back to `get_nearest_pickup_info`'s
+    /// pickup-direction, which is worse but preserves the existing contract.
+    pub fn get_route_tangent(
+        &self,
+        ship_x: f32, ship_y: f32,
+        ship_vx: f32, ship_vy: f32,
+        collected: &[bool],
+        look_ahead_cells: usize,
+    ) -> (f64, f64, bool) {
+        match self {
+            PathfinderKind::Spatial(pf) => pf.get_route_tangent(ship_x, ship_y, collected, look_ahead_cells),
+            PathfinderKind::Momentum(_) => {
+                let (d, dx, dy) = self.get_nearest_pickup_info(ship_x, ship_y, ship_vx, ship_vy, collected);
+                (dx, dy, d > 0.0)
+            }
+        }
+    }
+
+    /// Greedy-TSP remaining route length in world px (spatial backend).
+    /// Momentum backend falls back to nearest-pickup distance — it doesn't
+    /// precompute a pickup×pickup distance matrix, so full-tour cost isn't
+    /// directly available there.
+    pub fn get_remaining_route_length(
+        &self,
+        ship_x: f32, ship_y: f32,
+        ship_vx: f32, ship_vy: f32,
+        collected: &[bool],
+    ) -> f64 {
+        match self {
+            PathfinderKind::Spatial(pf) => pf.get_remaining_route_length(ship_x, ship_y, collected),
+            PathfinderKind::Momentum(mpf) => {
+                mpf.get_nearest_pickup_info(ship_x, ship_y, ship_vx, ship_vy, collected).0
+            }
+        }
+    }
+
     pub fn total_pickups(&self) -> usize {
         match self {
             PathfinderKind::Spatial(pf) => pf.total_pickups,

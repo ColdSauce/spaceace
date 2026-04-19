@@ -38,6 +38,7 @@ pub struct GameSnapshot {
     pub game_time: f32,
 }
 
+#[derive(Clone)]
 pub struct RealSpaceAceGame {
     physics: RealPhysicsState,
     collision_system: RealCollisionSystem,
@@ -260,6 +261,36 @@ impl RealSpaceAceGame {
         } else {
             (closest_x, closest_y, closest_dist)
         }
+    }
+
+    /// 16 extra raycasts interleaved with `get_wall_distances`'s 8 directions so that
+    /// combined they form 24 evenly spaced rays (15° apart) in ship-local space.
+    /// Order (degrees clockwise from forward): 15, 30, 60, 75, 105, 120, 150, 165,
+    /// 195, 210, 240, 255, 285, 300, 330, 345.
+    pub fn get_wall_distances_fine_16(&self) -> [f32; 16] {
+        let ship_pos = self.physics.get_position();
+        let ship_rotation = self.physics.get_rotation();
+        let mut distances = [1000.0_f32; 16];
+
+        let angles_deg: [f32; 16] = [
+            15.0, 30.0, 60.0, 75.0, 105.0, 120.0, 150.0, 165.0,
+            195.0, 210.0, 240.0, 255.0, 285.0, 300.0, 330.0, 345.0,
+        ];
+
+        let cos_r = ship_rotation.cos();
+        let sin_r = ship_rotation.sin();
+
+        for (i, &deg) in angles_deg.iter().enumerate() {
+            let rad = deg.to_radians();
+            // Ship-local: forward = (0,-1); clockwise angle θ → (sinθ, -cosθ)
+            let dx = rad.sin();
+            let dy = -rad.cos();
+            let world_dx = dx * cos_r - dy * sin_r;
+            let world_dy = dx * sin_r + dy * cos_r;
+            distances[i] = self.collision_system.raycast(ship_pos.0, ship_pos.1, world_dx, world_dy, 1000.0);
+        }
+
+        distances
     }
 
     pub fn get_wall_distances(&self) -> [f32; 8] {

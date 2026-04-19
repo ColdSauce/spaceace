@@ -1075,13 +1075,11 @@ let gameState = {
   },
   ghost: {
     enabled: false,
-    recording: [],
-    replayData: null,
-    replayIndex: 0,
-    prevIndex: 0,
-    nextIndex: 0,
-    interpolation: 0,
-    opacity: 1.0
+    human: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
+    ai:    { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
+    goofy: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
+    eager: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
+    rewind: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
   },
   gameTime:0,
   bestTime:null,
@@ -1135,30 +1133,46 @@ function saveLeaderboards() {
   }
 }
 
+// Submit result to dashboard leaderboard API (best-effort, no-op if not served from dashboard)
+function submitToDashboard(level, outcome, steps, pickupsCollected, pickupsTotal) {
+  fetch('/api/leaderboard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      level: level,
+      agent_type: 'human',
+      outcome: outcome,
+      steps: steps,
+      pickups_collected: pickupsCollected,
+      pickups_total: pickupsTotal,
+    }),
+  }).catch(() => {}); // silently ignore if not on dashboard
+}
+
 // Add a time to the leaderboard for specific level
 function addLeaderboardEntry(level, time) {
   // Ensure level is a string key
   const levelKey = level.toString();
-  
+
   // Create array if it doesn't exist
   if (!leaderboards[levelKey]) {
     leaderboards[levelKey] = [];
   }
-  
+
   // Add the time and sort
   leaderboards[levelKey].push({
     time: time,
     date: new Date().toISOString()
   });
-  
+
   // Sort by time (ascending)
   leaderboards[levelKey].sort((a, b) => a.time - b.time);
-  
+
   // Keep only top 10 scores for each level
   if (leaderboards[levelKey].length > 10) {
     leaderboards[levelKey] = leaderboards[levelKey].slice(0, 10);
   }
-  
+
   // Save to storage
   saveLeaderboards();
 }
@@ -1535,24 +1549,71 @@ function loadLevel(levelNum) {
   startGame();
 }
 
-// Load ghost data for a specific level - similar to pygame's implementation
+// Fetch server-side ghost data (AI best + human best) for a level
+function fetchServerGhosts(levelNum) {
+  fetch('/api/ghosts?level=' + levelNum)
+    .then(r => r.json())
+    .then(data => {
+      if (data.ai && data.ai.frames && data.ai.frames.length > 0) {
+        gameState.ghost.ai.replayData = data.ai.frames;
+        console.log(`Loaded AI ghost for level ${levelNum}, time: ${data.ai.time}s`);
+      }
+      if (data.goofy && data.goofy.frames && data.goofy.frames.length > 0) {
+        gameState.ghost.goofy.replayData = data.goofy.frames;
+        console.log(`Loaded goofy ghost for level ${levelNum}, time: ${data.goofy.time}s`);
+      }
+      if (data.eager && data.eager.frames && data.eager.frames.length > 0) {
+        gameState.ghost.eager.replayData = data.eager.frames;
+        console.log(`Loaded eager ghost for level ${levelNum}, time: ${data.eager.time}s`);
+      }
+      if (data.rewind && data.rewind.frames && data.rewind.frames.length > 0) {
+        gameState.ghost.rewind.replayData = data.rewind.frames;
+        console.log(`Loaded rewind ghost for level ${levelNum}, time: ${data.rewind.time}s`);
+      }
+      // Use server human ghost if no localStorage ghost exists
+      if (!gameState.ghost.human.replayData && data.human && data.human.frames && data.human.frames.length > 0) {
+        gameState.ghost.human.replayData = data.human.frames;
+        console.log(`Loaded server human ghost for level ${levelNum}, time: ${data.human.time}s`);
+      }
+    })
+    .catch(() => {}); // silently fail if not on dashboard
+}
+
+// Load ghost data for a specific level
 function loadGhostForLevel(levelNum) {
-  // Reset ghost data
-  gameState.ghost.replayData = null;
-  gameState.ghost.replayIndex = 0;
-  
-  // Only set up ghost if enabled
+  // Reset both ghost sub-objects
+  gameState.ghost.human.replayData = null;
+  gameState.ghost.human.prevIndex = 0;
+  gameState.ghost.human.nextIndex = 0;
+  gameState.ghost.human.interpolation = 0;
+  gameState.ghost.ai.replayData = null;
+  gameState.ghost.ai.prevIndex = 0;
+  gameState.ghost.ai.nextIndex = 0;
+  gameState.ghost.ai.interpolation = 0;
+  gameState.ghost.goofy.replayData = null;
+  gameState.ghost.goofy.prevIndex = 0;
+  gameState.ghost.goofy.nextIndex = 0;
+  gameState.ghost.goofy.interpolation = 0;
+  gameState.ghost.eager.replayData = null;
+  gameState.ghost.eager.prevIndex = 0;
+  gameState.ghost.eager.nextIndex = 0;
+  gameState.ghost.eager.interpolation = 0;
+  gameState.ghost.rewind.replayData = null;
+  gameState.ghost.rewind.prevIndex = 0;
+  gameState.ghost.rewind.nextIndex = 0;
+  gameState.ghost.rewind.interpolation = 0;
+
   if (!gameState.ghost.enabled) return;
-  
-  // Try to load ghost data for this level
+
+  // Load human ghost from localStorage (player's own best)
   const ghostReplay = loadGhost(levelNum);
   if (ghostReplay) {
-    console.log(`Loaded ghost data for level ${levelNum}, time: ${ghostReplay.time}s, positions: ${ghostReplay.positions.length}`);
-    gameState.ghost.replayData = ghostReplay.positions;
-    gameState.ghost.bestTime = ghostReplay.time;
-  } else {
-    console.log(`No ghost data available for level ${levelNum}`);
+    console.log(`Loaded local human ghost for level ${levelNum}, time: ${ghostReplay.time}s, positions: ${ghostReplay.positions.length}`);
+    gameState.ghost.human.replayData = ghostReplay.positions;
   }
+
+  // Fetch AI ghost (and server human ghost as fallback) from dashboard API
+  fetchServerGhosts(levelNum);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1598,11 +1659,12 @@ function resetGame() {
   gameState.camera.zoom = 0.8; // Match pygame's scale more closely
   gameState.camera.targetZoom = 0.8;
 
-  // Reset ghost replay index and interpolation values
-  gameState.ghost.replayIndex = 0;
-  gameState.ghost.prevIndex = 0;
-  gameState.ghost.nextIndex = 0;
-  gameState.ghost.interpolation = 0;
+  // Reset ghost replay indices for both ghost types
+  ['human', 'ai', 'goofy', 'eager', 'rewind'].forEach(type => {
+    gameState.ghost[type].prevIndex = 0;
+    gameState.ghost[type].nextIndex = 0;
+    gameState.ghost[type].interpolation = 0;
+  });
   
   // Reset camera tracking for vertex cache optimization
   gameState.camera.lastX = gameState.camera.x;
@@ -1709,6 +1771,8 @@ function updateFrame(timestamp) {
 
     // Collision detection with spatial partitioning
     if(shipCollisionCheck()) {
+      const collected = gameState.pickups.filter(p => p.collected).length;
+      submitToDashboard(currentLevel, 'crashed', Math.round(gameState.gameTime * 60), collected, gameState.pickups.length);
       resetGame();
     }
 
@@ -1729,47 +1793,41 @@ function updateFrame(timestamp) {
   // Track performance - update phase complete
   performanceMetrics.updateTime = performance.now() - performanceMetrics.frameStartTime;
   
-  // Simple ghost ship update function
-  function updateGhostShip() {
-    if (!gameState.ghost.enabled || !gameState.ghost.replayData) return;
-    
-    const ghostData = gameState.ghost.replayData;
-    if (ghostData.length === 0) return;
-    
-    // Always full opacity
-    gameState.ghost.opacity = 1.0;
-    
-    // Find the right frames to interpolate between
+  // Update interpolation state for a single ghost sub-object
+  function updateGhostInterpolation(ghostObj) {
+    if (!ghostObj.replayData || ghostObj.replayData.length === 0) return;
+
     let prevIndex = 0;
-    for (let i = 0; i < ghostData.length; i++) {
-      if (ghostData[i].time <= gameState.gameTime) {
+    for (let i = 0; i < ghostObj.replayData.length; i++) {
+      if (ghostObj.replayData[i].time <= gameState.gameTime) {
         prevIndex = i;
       } else {
         break;
       }
     }
-    
-    // Set nextIndex
-    const nextIndex = Math.min(prevIndex + 1, ghostData.length - 1);
-    
-    // Save indices
-    gameState.ghost.prevIndex = prevIndex;
-    gameState.ghost.nextIndex = nextIndex;
-    
-    // Calculate interpolation factor
+
+    const nextIndex = Math.min(prevIndex + 1, ghostObj.replayData.length - 1);
+    ghostObj.prevIndex = prevIndex;
+    ghostObj.nextIndex = nextIndex;
+
     if (prevIndex === nextIndex) {
-      gameState.ghost.interpolation = 0;
+      ghostObj.interpolation = 0;
     } else {
-      const prevTime = ghostData[prevIndex].time;
-      const nextTime = ghostData[nextIndex].time;
+      const prevTime = ghostObj.replayData[prevIndex].time;
+      const nextTime = ghostObj.replayData[nextIndex].time;
       const timeDiff = nextTime - prevTime;
-      
-      if (timeDiff > 0) {
-        gameState.ghost.interpolation = (gameState.gameTime - prevTime) / timeDiff;
-      } else {
-        gameState.ghost.interpolation = 0;
-      }
+      ghostObj.interpolation = timeDiff > 0 ? (gameState.gameTime - prevTime) / timeDiff : 0;
     }
+  }
+
+  // Update both ghost ships
+  function updateGhostShip() {
+    if (!gameState.ghost.enabled) return;
+    updateGhostInterpolation(gameState.ghost.human);
+    updateGhostInterpolation(gameState.ghost.ai);
+    updateGhostInterpolation(gameState.ghost.goofy);
+    updateGhostInterpolation(gameState.ghost.eager);
+    updateGhostInterpolation(gameState.ghost.rewind);
   }
 
   FD = DD * ED;
@@ -1829,11 +1887,27 @@ function endRun() {
   
   // Save to leaderboard
   addLeaderboardEntry(currentLevel, completionTime);
-  
+
+  // Submit to dashboard API
+  const totalPickups = gameState.pickups.length;
+  submitToDashboard(currentLevel, 'completed', Math.round(completionTime * 60), totalPickups, totalPickups);
+
   // Save ghost data if this is a new best time
   if (isNewBest) {
     console.log("New best time! Saving ghost data.");
     saveGhostReplay(currentLevel, completionTime);
+
+    // Upload human ghost to dashboard server
+    fetch('/api/ghosts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        level: currentLevel,
+        ghost_type: 'human',
+        time_seconds: completionTime,
+        frames: gameState.currentRecording,
+      }),
+    }).catch(() => {});
   }
   
   // Show completion message
@@ -2173,18 +2247,44 @@ let showPerformanceInfo = false;
 function drawAll() {
   // Clear with a single operation
   ctx.clearRect(0,0,canvas.width, canvas.height);
-  
+
+  // Layered cosmic background — deep space gradient + parallax starfield
+  drawSpaceBackground();
+  drawStarfield();
+
   // Draw world elements - order matters for performance (fewer state changes)
   drawMap();
   drawPickups();
   
-  // Draw ghost ship if enabled
-  if (gameState.ghost.enabled && gameState.ghost.replayData && gameState.ghost.replayData.length > 0) {
-    drawGhostShip();
+  // Draw ghost ships if enabled
+  if (gameState.ghost.enabled) {
+    if (gameState.ghost.human.replayData && gameState.ghost.human.replayData.length > 0) {
+      drawGhostShipWithColor(gameState.ghost.human, "rgba(0, 100, 255, 0.5)", null);
+    }
+    if (gameState.ghost.ai.replayData && gameState.ghost.ai.replayData.length > 0) {
+      // Neon magenta AI ghost with multi-pass glow
+      drawGhostShipWithColor(gameState.ghost.ai, "#ff00ff", "#ff00ff");
+    }
+    if (gameState.ghost.goofy.replayData && gameState.ghost.goofy.replayData.length > 0) {
+      // Neon lime-green goofy ghost with multi-pass glow
+      drawGhostShipWithColor(gameState.ghost.goofy, "#39ff14", "#39ff14");
+    }
+    if (gameState.ghost.eager.replayData && gameState.ghost.eager.replayData.length > 0) {
+      // Neon cyan eager ghost with multi-pass glow
+      drawGhostShipWithColor(gameState.ghost.eager, "#00e5ff", "#00e5ff");
+    }
+    if (gameState.ghost.rewind.replayData && gameState.ghost.rewind.replayData.length > 0) {
+      // Neon orange rewind ghost with multi-pass glow
+      drawGhostShipWithColor(gameState.ghost.rewind, "#ff8800", "#ff8800");
+    }
   }
   
+  drawShipParticles();
   drawShip();
   drawMiniMap();
+
+  // Subtle screen-edge vignette for depth
+  drawVignette();
 
   // Update UI elements efficiently
   // Only update if the values actually changed to reduce DOM operations
@@ -2226,34 +2326,28 @@ function drawAll() {
   }
 }
 
-// Simplified ghost ship drawing
-function drawGhostShip() {
-  if (!gameState.ghost.replayData || gameState.ghost.replayData.length === 0) return;
-  
-  // Get frames to interpolate between
-  const prevIndex = gameState.ghost.prevIndex;
-  const nextIndex = gameState.ghost.nextIndex;
-  const interpolation = gameState.ghost.interpolation;
-  
-  // Get frame data
-  const prevFrame = gameState.ghost.replayData[prevIndex];
-  
-  // Position and rotation
+// Draw a ghost ship. If glowColor is provided, renders with a neon multi-pass glow.
+function drawGhostShipWithColor(ghostObj, strokeColor, glowColor) {
+  if (!ghostObj.replayData || ghostObj.replayData.length === 0) return;
+
+  const prevIndex = ghostObj.prevIndex;
+  const nextIndex = ghostObj.nextIndex;
+  const interpolation = ghostObj.interpolation;
+  const prevFrame = ghostObj.replayData[prevIndex];
+
   let ghostX = prevFrame.x;
   let ghostY = prevFrame.y;
   let ghostRotation = prevFrame.rotation;
   let ghostThrusting = prevFrame.thrusting;
-  
-  // Simple interpolation
+
   if (prevIndex !== nextIndex && interpolation > 0) {
-    const nextFrame = gameState.ghost.replayData[nextIndex];
+    const nextFrame = ghostObj.replayData[nextIndex];
     ghostX = prevFrame.x + (nextFrame.x - prevFrame.x) * interpolation;
     ghostY = prevFrame.y + (nextFrame.y - prevFrame.y) * interpolation;
     ghostRotation = prevFrame.rotation + (nextFrame.rotation - prevFrame.rotation) * interpolation;
     ghostThrusting = prevFrame.thrusting;
   }
-  
-  // Transform to screen
+
   const cos = Math.cos(ghostRotation);
   const sin = Math.sin(ghostRotation);
   const scVerts = shipVerts.map(v => {
@@ -2261,31 +2355,73 @@ function drawGhostShip() {
     const ry = v.x * sin + v.y * cos;
     return worldToScreen(ghostX + rx, ghostY + ry);
   });
-  
-  // Blue semi-transparent color
-  ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
-  ctx.lineWidth = 2;
-  
-  // Draw ship outline
-  ctx.beginPath();
-  ctx.moveTo(scVerts[3].x, scVerts[3].y);
-  ctx.lineTo(scVerts[6].x, scVerts[6].y);
-  ctx.moveTo(scVerts[2].x, scVerts[2].y);
-  ctx.lineTo(scVerts[1].x, scVerts[1].y);
-  ctx.lineTo(scVerts[0].x, scVerts[0].y);
-  ctx.lineTo(scVerts[4].x, scVerts[4].y);
-  ctx.lineTo(scVerts[5].x, scVerts[5].y);
-  ctx.stroke();
-  
-  // Draw thruster if active
-  if (ghostThrusting) {
+
+  function strokeShip() {
     ctx.beginPath();
-    ctx.strokeStyle = "rgba(0, 100, 255, 0.5)";
-    ctx.lineWidth = 1;
+    ctx.moveTo(scVerts[3].x, scVerts[3].y);
+    ctx.lineTo(scVerts[6].x, scVerts[6].y);
+    ctx.moveTo(scVerts[2].x, scVerts[2].y);
+    ctx.lineTo(scVerts[1].x, scVerts[1].y);
+    ctx.lineTo(scVerts[0].x, scVerts[0].y);
+    ctx.lineTo(scVerts[4].x, scVerts[4].y);
+    ctx.lineTo(scVerts[5].x, scVerts[5].y);
+    ctx.stroke();
+  }
+  function strokeThruster() {
+    ctx.beginPath();
     ctx.moveTo(scVerts[8].x, scVerts[8].y);
     ctx.lineTo(scVerts[7].x, scVerts[7].y);
     ctx.lineTo(scVerts[9].x, scVerts[9].y);
     ctx.stroke();
+  }
+
+  if (glowColor) {
+    // Neon pass: wide outer glow → tight inner glow → bright core
+    const prevComposite = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = glowColor;
+
+    // Outer halo
+    ctx.shadowBlur = 24;
+    ctx.strokeStyle = glowColor;
+    ctx.lineWidth = 4;
+    strokeShip();
+
+    // Mid glow
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 2.5;
+    strokeShip();
+
+    // Bright core
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.2;
+    strokeShip();
+
+    if (ghostThrusting) {
+      ctx.shadowBlur = 18;
+      ctx.strokeStyle = glowColor;
+      ctx.lineWidth = 3;
+      strokeThruster();
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      strokeThruster();
+    }
+
+    // Reset
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.globalCompositeOperation = prevComposite;
+  } else {
+    ctx.strokeStyle = strokeColor;
+    ctx.lineWidth = 2;
+    strokeShip();
+    if (ghostThrusting) {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1;
+      strokeThruster();
+    }
   }
 }
 
@@ -2318,24 +2454,88 @@ function clearScreenVertexCache() {
   screenVertexCache.clear();
 }
 
-// More optimized map rendering with spatial partitioning
+// ── Visual FX helpers ────────────────────────────────────────────────────────
+
+// Persistent starfield — pre-rendered to offscreen tiles per parallax layer.
+// Each frame we just draw each tile a few times with an offset (cheap drawImage).
+function ensureStarfield() {
+  if (window._starLayers) return;
+  const TILE = 1024;
+  const layers = [
+    { count: 90, depth: 0.05, minR: 0.3, maxR: 0.9, hueLo: 200, hueHi: 240 },
+    { count: 55, depth: 0.13, minR: 0.5, maxR: 1.4, hueLo: 180, hueHi: 240 },
+    { count: 22, depth: 0.26, minR: 0.9, maxR: 2.2, hueLo: 30,  hueHi: 70  },
+  ];
+  window._starLayers = layers.map(layer => {
+    const c = document.createElement('canvas');
+    c.width = TILE; c.height = TILE;
+    const x = c.getContext('2d');
+    for (let i = 0; i < layer.count; i++) {
+      const r = layer.minR + Math.random() * (layer.maxR - layer.minR);
+      const hue = layer.hueLo + Math.random() * (layer.hueHi - layer.hueLo);
+      const a = 0.35 + Math.random() * 0.55;
+      x.fillStyle = `hsla(${hue},80%,82%,${a.toFixed(3)})`;
+      x.beginPath();
+      x.arc(Math.random() * TILE, Math.random() * TILE, r, 0, Math.PI * 2);
+      x.fill();
+    }
+    return { canvas: c, depth: layer.depth, tile: TILE };
+  });
+}
+
+function drawSpaceBackground() {
+  // Subtle radial gradient: deep blue-black centre fading to pure black
+  const W = canvas.width, H = canvas.height;
+  const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.1, W*0.5, H*0.5, Math.max(W,H)*0.75);
+  g.addColorStop(0, '#070d18');
+  g.addColorStop(0.6, '#03060c');
+  g.addColorStop(1, '#000000');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function drawStarfield() {
+  ensureStarfield();
+  const cam = gameState.camera;
+  const W = canvas.width, H = canvas.height;
+  for (const layer of window._starLayers) {
+    const T = layer.tile;
+    // Parallax offset, wrapped into tile space
+    let ox = -((cam.x * layer.depth) % T);
+    let oy = -((cam.y * layer.depth) % T);
+    if (ox > 0) ox -= T;
+    if (oy > 0) oy -= T;
+    for (let x = ox; x < W; x += T) {
+      for (let y = oy; y < H; y += T) {
+        ctx.drawImage(layer.canvas, x, y);
+      }
+    }
+  }
+}
+
+function drawVignette() {
+  const W = canvas.width, H = canvas.height;
+  const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.35, W*0.5, H*0.5, Math.max(W,H)*0.7);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+}
+
+// More optimized map rendering with spatial partitioning + neon-glow passes
 function drawMap() {
   const md = gameState.mapData;
   if(!md || !md.lines) return;
-  
+
   const lines = md.lines;
   const vertices = md.vertices;
   const lineCount = lines.length;
-  
+
   // Update screen bounds if needed
   updateScreenBounds();
-  
-  // Set styles once before the loop
-  ctx.strokeStyle = '#00FF00';
-  ctx.lineWidth = 2;
-  
+
   // Clear vertex cache if camera changed
-  if (gameState.camera.lastX !== gameState.camera.x || 
+  if (gameState.camera.lastX !== gameState.camera.x ||
       gameState.camera.lastY !== gameState.camera.y ||
       gameState.camera.lastZoom !== gameState.camera.zoom) {
     clearScreenVertexCache();
@@ -2343,18 +2543,16 @@ function drawMap() {
     gameState.camera.lastY = gameState.camera.y;
     gameState.camera.lastZoom = gameState.camera.zoom;
   }
-  
-  // Optimization: batch lines together in a single path
-  ctx.beginPath();
-  
+
+  // Build a single Path2D with all visible segments — reused for the glow passes.
+  const path = new Path2D();
+
   for(let i = 0; i < lineCount; i++) {
     const line = lines[i];
     const v1Idx = line[0];
     const v2Idx = line[1];
-    
-    // Get or calculate screen coordinates using cache
+
     let s1, s2;
-    
     if (screenVertexCache.has(v1Idx)) {
       s1 = screenVertexCache.get(v1Idx);
     } else {
@@ -2362,7 +2560,6 @@ function drawMap() {
       s1 = worldToScreen(v1.x, v1.y);
       screenVertexCache.set(v1Idx, s1);
     }
-    
     if (screenVertexCache.has(v2Idx)) {
       s2 = screenVertexCache.get(v2Idx);
     } else {
@@ -2370,209 +2567,424 @@ function drawMap() {
       s2 = worldToScreen(v2.x, v2.y);
       screenVertexCache.set(v2Idx, s2);
     }
-    
-    // Fast off-screen culling
-    if ((s1.x < mapScreenBounds.minX && s2.x < mapScreenBounds.minX) || 
+
+    if ((s1.x < mapScreenBounds.minX && s2.x < mapScreenBounds.minX) ||
         (s1.x > mapScreenBounds.maxX && s2.x > mapScreenBounds.maxX) ||
         (s1.y < mapScreenBounds.minY && s2.y < mapScreenBounds.minY) ||
         (s1.y > mapScreenBounds.maxY && s2.y > mapScreenBounds.maxY)) {
-      continue; // Skip this line, it's offscreen
+      continue;
     }
-    
-    // Draw the line
-    ctx.moveTo(s1.x, s1.y);
-    ctx.lineTo(s2.x, s2.y);
+
+    path.moveTo(s1.x, s1.y);
+    path.lineTo(s2.x, s2.y);
   }
-  
-  // Draw all lines at once
-  ctx.stroke();
+
+  // Multi-pass neon stroke (additive) — outer halo → mid glow → bright core.
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Skip the wide halo on dense maps to keep stroke cost down
+  if (lineCount < 1200) {
+    ctx.strokeStyle = 'rgba(0,255,140,0.18)';
+    ctx.lineWidth = 6;
+    ctx.stroke(path);
+  }
+
+  ctx.strokeStyle = 'rgba(0,255,140,0.45)';
+  ctx.lineWidth = 3;
+  ctx.stroke(path);
+
+  ctx.strokeStyle = '#c8ffe0';
+  ctx.lineWidth = 1.2;
+  ctx.stroke(path);
+
+  ctx.globalCompositeOperation = prev;
 }
 
 function drawPickups() {
-  // Only set styles once, outside the loop
-  ctx.strokeStyle = '#FFFFFF';
-  ctx.lineWidth = 2;
-  
-  // Use a single path for all pickups - reduces stroke() calls
-  ctx.beginPath();
-  
-  // Pre-calculate pickup radius
   const scaledRadius = PICKUP_RADIUS * gameState.camera.zoom;
-  
-  // Get visible screen bounds with a margin
   const margin = 100;
-  const screenMinX = -margin;
-  const screenMaxX = canvas.width + margin;
-  const screenMinY = -margin;
-  const screenMaxY = canvas.height + margin;
-  
-  for(const p of gameState.pickups) {
-    if(!p.collected) {
-      const scr = worldToScreen(p.x, p.y);
-      
-      // Skip offscreen pickups for performance
-      if (scr.x < screenMinX || scr.x > screenMaxX || 
-          scr.y < screenMinY || scr.y > screenMaxY) {
-        continue;
-      }
-      
-      // Draw the pickup
-      ctx.moveTo(scr.x + scaledRadius, scr.y);
-      ctx.arc(scr.x, scr.y, scaledRadius, 0, 2 * Math.PI);
-    }
+  const screenMinX = -margin, screenMaxX = canvas.width + margin;
+  const screenMinY = -margin, screenMaxY = canvas.height + margin;
+
+  // Pulse animation
+  const t = performance.now() * 0.001;
+  const pulse = 0.75 + 0.25 * Math.sin(t * 3.0);
+
+  // Collect visible positions once so we can do multiple stroke passes cheaply
+  const visible = [];
+  for (const p of gameState.pickups) {
+    if (p.collected) continue;
+    const scr = worldToScreen(p.x, p.y);
+    if (scr.x < screenMinX || scr.x > screenMaxX || scr.y < screenMinY || scr.y > screenMaxY) continue;
+    visible.push(scr);
   }
-  
-  // Draw all pickups at once
-  ctx.stroke();
+  if (visible.length === 0) return;
+
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+
+  // Outer halo ring — pulses outward
+  const haloR = scaledRadius * (1.6 + 0.35 * pulse);
+  const halo = new Path2D();
+  for (const s of visible) {
+    halo.moveTo(s.x + haloR, s.y);
+    halo.arc(s.x, s.y, haloR, 0, Math.PI * 2);
+  }
+  ctx.strokeStyle = `rgba(255,220,120,${(0.10 + 0.10 * pulse).toFixed(3)})`;
+  ctx.lineWidth = 3;
+  ctx.stroke(halo);
+
+  // Mid glow ring
+  const midR = scaledRadius * 1.05;
+  const mid = new Path2D();
+  for (const s of visible) {
+    mid.moveTo(s.x + midR, s.y);
+    mid.arc(s.x, s.y, midR, 0, Math.PI * 2);
+  }
+  ctx.strokeStyle = `rgba(255,200,80,${(0.55 + 0.25 * pulse).toFixed(3)})`;
+  ctx.lineWidth = 2.2;
+  ctx.stroke(mid);
+
+  // Bright inner core
+  const innerR = scaledRadius * 0.55;
+  const core = new Path2D();
+  for (const s of visible) {
+    core.moveTo(s.x + innerR, s.y);
+    core.arc(s.x, s.y, innerR, 0, Math.PI * 2);
+  }
+  ctx.fillStyle = `rgba(255,255,210,${(0.55 + 0.35 * pulse).toFixed(3)})`;
+  ctx.fill(core);
+
+  // Rotating sparkle cross — small, only if zoomed in enough to be visible
+  if (scaledRadius >= 4) {
+    const ang = t * 1.4;
+    const cs = Math.cos(ang), sn = Math.sin(ang);
+    const armLen = scaledRadius * (1.35 + 0.15 * pulse);
+    const cross = new Path2D();
+    for (const s of visible) {
+      cross.moveTo(s.x - cs * armLen, s.y - sn * armLen);
+      cross.lineTo(s.x + cs * armLen, s.y + sn * armLen);
+      cross.moveTo(s.x + sn * armLen, s.y - cs * armLen);
+      cross.lineTo(s.x - sn * armLen, s.y + cs * armLen);
+    }
+    ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.35 * pulse).toFixed(3)})`;
+    ctx.lineWidth = 1;
+    ctx.stroke(cross);
+  }
+
+  ctx.globalCompositeOperation = prev;
 }
 
 function drawShip() {
-  const s=gameState.ship;
-  if(s.exploded){
-    // e.g. drawExplosion();
+  const s = gameState.ship;
+  if (s.exploded) {
+    drawExplosion(s);
     return;
   }
-  
-  // Pre-compute sine and cosine
-  const cos=Math.cos(s.rotation);
-  const sin=Math.sin(s.rotation);
-  
-  // Optimized rendering - avoid array allocation and maps
-  ctx.strokeStyle='#00FF00';
-  ctx.lineWidth=2.5;
-  
-  // Draw ship body directly
-  ctx.beginPath();
-  
-  // Transform and draw first line (3->6)
-  let rx = shipVerts[3].x * cos - shipVerts[3].y * sin;
-  let ry = shipVerts[3].x * sin + shipVerts[3].y * cos;
-  let screen1 = worldToScreen(s.x + rx, s.y + ry);
-  
-  rx = shipVerts[6].x * cos - shipVerts[6].y * sin;
-  ry = shipVerts[6].x * sin + shipVerts[6].y * cos;
-  let screen2 = worldToScreen(s.x + rx, s.y + ry);
-  
-  ctx.moveTo(screen1.x, screen1.y);
-  ctx.lineTo(screen2.x, screen2.y);
-  
-  // Draw main ship shape (2->1->0->4->5)
-  rx = shipVerts[2].x * cos - shipVerts[2].y * sin;
-  ry = shipVerts[2].x * sin + shipVerts[2].y * cos;
-  screen1 = worldToScreen(s.x + rx, s.y + ry);
-  ctx.moveTo(screen1.x, screen1.y);
-  
-  for (let i of [1, 0, 4, 5]) {
-    rx = shipVerts[i].x * cos - shipVerts[i].y * sin;
-    ry = shipVerts[i].x * sin + shipVerts[i].y * cos;
-    screen1 = worldToScreen(s.x + rx, s.y + ry);
-    ctx.lineTo(screen1.x, screen1.y);
-  }
-  
-  // Complete drawing
-  ctx.stroke();
+  // Clear explosion timer once ship has been reset, so the next death replays cleanly.
+  if (s._explodeStart != null) s._explodeStart = null;
 
-  // thruster 8->7->9 if thrusting
-  if(s.thrusting){
+  const cos = Math.cos(s.rotation);
+  const sin = Math.sin(s.rotation);
+
+  // Helper: project a vertex by index
+  function v(i) {
+    const rx = shipVerts[i].x * cos - shipVerts[i].y * sin;
+    const ry = shipVerts[i].x * sin + shipVerts[i].y * cos;
+    return worldToScreen(s.x + rx, s.y + ry);
+  }
+
+  // Build body Path2D — used by all glow passes
+  const body = new Path2D();
+  let p = v(3); body.moveTo(p.x, p.y);
+  p = v(6); body.lineTo(p.x, p.y);
+  p = v(2); body.moveTo(p.x, p.y);
+  for (const i of [1, 0, 4, 5]) { p = v(i); body.lineTo(p.x, p.y); }
+
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Outer halo
+  ctx.strokeStyle = 'rgba(0,255,140,0.22)';
+  ctx.lineWidth = 7;
+  ctx.stroke(body);
+  // Mid glow
+  ctx.strokeStyle = 'rgba(120,255,180,0.55)';
+  ctx.lineWidth = 3.5;
+  ctx.stroke(body);
+  // Bright core
+  ctx.strokeStyle = '#eaffe6';
+  ctx.lineWidth = 1.4;
+  ctx.stroke(body);
+
+  // Cockpit dot — between vertices 0 (nose) and centre, gives a pilot accent
+  const nose = v(0);
+  const tail3 = v(3), tail6 = v(6);
+  const midX = (nose.x + (tail3.x + tail6.x) * 0.5) * 0.5;
+  const midY = (nose.y + (tail3.y + tail6.y) * 0.5) * 0.5;
+  const cockpitR = Math.max(1.5, gameState.camera.zoom * 3);
+  const cockpitGrad = ctx.createRadialGradient(midX, midY, 0, midX, midY, cockpitR * 2);
+  cockpitGrad.addColorStop(0, 'rgba(140,220,255,0.9)');
+  cockpitGrad.addColorStop(1, 'rgba(140,220,255,0)');
+  ctx.fillStyle = cockpitGrad;
+  ctx.beginPath();
+  ctx.arc(midX, midY, cockpitR * 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Animated thruster flame: layered triangles 8→7→9 with flicker
+  if (s.thrusting) {
+    const t = performance.now() * 0.001;
+    const flicker = 0.85 + 0.15 * Math.sin(t * 60) + 0.08 * Math.sin(t * 23);
+
+    const v8 = v(8), v7 = v(7), v9 = v(9);
+    // Compute an extended flame tip beyond v7 along the (cockpit→thruster) direction for a longer flame
+    const dx = v7.x - midX, dy = v7.y - midY;
+    const ext = 0.05 + 0.08 * flicker;
+    const tipX = v7.x + dx * ext;
+    const tipY = v7.y + dy * ext;
+
+    const flame = new Path2D();
+    flame.moveTo(v8.x, v8.y);
+    flame.lineTo(tipX, tipY);
+    flame.lineTo(v9.x, v9.y);
+
+    // Wide orange halo
+    ctx.strokeStyle = `rgba(255,140,40,${(0.45 * flicker).toFixed(3)})`;
+    ctx.lineWidth = 7;
+    ctx.stroke(flame);
+    // Yellow mid
+    ctx.strokeStyle = `rgba(255,210,90,${(0.75 * flicker).toFixed(3)})`;
+    ctx.lineWidth = 3.5;
+    ctx.stroke(flame);
+    // White-hot core
+    ctx.strokeStyle = `rgba(255,255,235,${(0.95 * flicker).toFixed(3)})`;
+    ctx.lineWidth = 1.4;
+    ctx.stroke(flame);
+  }
+
+  ctx.globalCompositeOperation = prev;
+}
+
+// Lightweight engine-particle system — purely visual, no physics influence.
+const _particles = [];
+function spawnEngineParticles() {
+  const s = gameState.ship;
+  if (!s.thrusting || s.exploded) return;
+  const cos = Math.cos(s.rotation), sin = Math.sin(s.rotation);
+  // Spawn from the thruster tip (vert 7), going opposite the ship's facing.
+  const tip = shipVerts[7];
+  const wx = s.x + tip.x * cos - tip.y * sin;
+  const wy = s.y + tip.x * sin + tip.y * cos;
+  // Backwards direction in world space (ship's local +y is "back")
+  const backX = -sin, backY = cos;
+  // One particle per frame is plenty when the trail decays fast
+  const spread = (Math.random() - 0.5) * 0.6;
+  const speed = 1.5 + Math.random() * 2.0;
+  const dirX = backX * Math.cos(spread) - backY * Math.sin(spread);
+  const dirY = backX * Math.sin(spread) + backY * Math.cos(spread);
+  _particles.push({
+    x: wx + (Math.random() - 0.5) * 6,
+    y: wy + (Math.random() - 0.5) * 6,
+    vx: dirX * speed,
+    vy: dirY * speed,
+    life: 1.0,
+    decay: 0.06 + Math.random() * 0.05,
+    size: 1.2 + Math.random() * 1.6,
+  });
+  if (_particles.length > 90) _particles.splice(0, _particles.length - 90);
+}
+
+function drawShipParticles() {
+  spawnEngineParticles();
+  if (_particles.length === 0) return;
+
+  // Step + cull, then batch into 3 paths grouped by life tier (one fill per tier)
+  const hot = new Path2D(), mid = new Path2D(), cold = new Path2D();
+  const zoom = gameState.camera.zoom;
+  const W = canvas.width, H = canvas.height;
+  let hasHot = false, hasMid = false, hasCold = false;
+
+  for (let i = _particles.length - 1; i >= 0; i--) {
+    const p = _particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) { _particles.splice(i, 1); continue; }
+    const scr = worldToScreen(p.x, p.y);
+    if (scr.x < -20 || scr.x > W + 20 || scr.y < -20 || scr.y > H + 20) continue;
+    const r = Math.max(0.5, p.size * zoom * (0.6 + p.life * 0.8));
+    let path;
+    if      (p.life > 0.66) { path = hot;  hasHot = true; }
+    else if (p.life > 0.33) { path = mid;  hasMid = true; }
+    else                    { path = cold; hasCold = true; }
+    path.moveTo(scr.x + r, scr.y);
+    path.arc(scr.x, scr.y, r, 0, Math.PI * 2);
+  }
+
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+  if (hasHot)  { ctx.fillStyle = 'rgba(255,255,220,0.7)'; ctx.fill(hot); }
+  if (hasMid)  { ctx.fillStyle = 'rgba(255,180,80,0.55)'; ctx.fill(mid); }
+  if (hasCold) { ctx.fillStyle = 'rgba(220,80,40,0.35)'; ctx.fill(cold); }
+  ctx.globalCompositeOperation = prev;
+}
+
+// Brief explosion burst (visual only — exploded state already triggered upstream)
+function drawExplosion(s) {
+  if (s._explodeStart == null) {
+    s._explodeStart = performance.now();
+    // Seed a ring of debris particles
+    for (let i = 0; i < 60; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * 4.5;
+      _particles.push({
+        x: s.x, y: s.y,
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+        life: 1.0, decay: 0.018 + Math.random() * 0.02,
+        size: 1.5 + Math.random() * 2.5,
+      });
+    }
+  }
+  // Expanding shockwave ring
+  const elapsed = (performance.now() - s._explodeStart) / 1000;
+  if (elapsed < 1.2) {
+    const scr = worldToScreen(s.x, s.y);
+    const ringR = elapsed * 220 * gameState.camera.zoom;
+    const a = Math.max(0, 1 - elapsed / 1.2);
+    const prev = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255,160,60,${(a*0.7).toFixed(3)})`;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.lineWidth=1.25;
-    
-    // Thruster line 8->7->9
-    rx = shipVerts[8].x * cos - shipVerts[8].y * sin;
-    ry = shipVerts[8].x * sin + shipVerts[8].y * cos;
-    screen1 = worldToScreen(s.x + rx, s.y + ry);
-    ctx.moveTo(screen1.x, screen1.y);
-    
-    rx = shipVerts[7].x * cos - shipVerts[7].y * sin;
-    ry = shipVerts[7].x * sin + shipVerts[7].y * cos;
-    screen1 = worldToScreen(s.x + rx, s.y + ry);
-    ctx.lineTo(screen1.x, screen1.y);
-    
-    rx = shipVerts[9].x * cos - shipVerts[9].y * sin;
-    ry = shipVerts[9].x * sin + shipVerts[9].y * cos;
-    screen1 = worldToScreen(s.x + rx, s.y + ry);
-    ctx.lineTo(screen1.x, screen1.y);
-    
+    ctx.arc(scr.x, scr.y, ringR, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.strokeStyle = `rgba(255,240,180,${(a*0.4).toFixed(3)})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(scr.x, scr.y, ringR * 0.7, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.globalCompositeOperation = prev;
   }
 }
 
 function drawMiniMap() {
+  // Capture main game canvas dims before we shadow `canvas` below
+  const mainCanvas = document.getElementById('gameCanvas');
+  const mainW = mainCanvas ? mainCanvas.width : 800;
+  const mainH = mainCanvas ? mainCanvas.height : 600;
+
   // Use offscreen canvas if available, otherwise use the regular canvas
   const ctx = window.offscreenMiniMapCtx || miniMapCtx;
   const canvas = window.offscreenMiniMapCanvas || miniMapCanvas;
-  
-  // Clear and set background
-  ctx.clearRect(0, 0, 200, 150);
-  ctx.fillStyle = 'rgba(0,0,0,0.4)';
-  ctx.fillRect(0, 0, 200, 150);
+
+  const W = 200, H = 150;
+
+  // Background gradient — deep space tone with rounded inner panel
+  ctx.clearRect(0, 0, W, H);
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, 'rgba(8,16,28,0.85)');
+  bgGrad.addColorStop(1, 'rgba(0,0,0,0.85)');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Frame border (neon)
+  ctx.strokeStyle = 'rgba(0,255,140,0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(0.75, 0.75, W - 1.5, H - 1.5);
 
   const md = gameState.mapData;
   if(!md || !md.lines) return;
-  
-  // Calculate bounding box and scale
+
   const {minX, maxX, minY, maxY} = gameState.bounds;
   const mapW = maxX - minX;
   const mapH = maxY - minY;
-  const scale = Math.min(200/mapW, 150/mapH);
+  const scale = Math.min(W/mapW, H/mapH) * 0.92;
+  const ox = (W - mapW * scale) * 0.5 - minX * scale;
+  const oy = (H - mapH * scale) * 0.5 - minY * scale;
 
-  // Reused object for coordinate mapping to reduce GC
-  const miniPoint = {x: 0, y: 0};
-  
-  function mapToMini(wx, wy){
-    miniPoint.x = (wx - minX) * scale;
-    miniPoint.y = (wy - minY) * scale;
-    return miniPoint;
-  }
+  function mx(wx) { return ox + wx * scale; }
+  function my(wy) { return oy + wy * scale; }
 
-  // Batch all lines for better performance
-  ctx.strokeStyle = '#00FF00';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  
-  // Only render a subset of lines if the map is very complex
-  const lineStep = md.lines.length > 1000 ? 2 : 1; // Skip every other line on complex maps
-  
+  // Map walls — neon glow (two-pass: halo + bright core)
+  const path = new Path2D();
+  const lineStep = md.lines.length > 1000 ? 2 : 1;
   for(let i = 0; i < md.lines.length; i += lineStep) {
     const [i1, i2] = md.lines[i];
     const v1 = md.vertices[i1];
     const v2 = md.vertices[i2];
-    const p1 = mapToMini(v1.x, v1.y);
-    
-    // We reuse the same object, so capture x,y before next call
-    const p1x = p1.x;
-    const p1y = p1.y;
-    
-    const p2 = mapToMini(v2.x, v2.y);
-    ctx.moveTo(p1x, p1y);
-    ctx.lineTo(p2.x, p2.y);
+    path.moveTo(mx(v1.x), my(v1.y));
+    path.lineTo(mx(v2.x), my(v2.y));
   }
-  
-  // Draw all lines at once
-  ctx.stroke();
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = 'rgba(0,255,140,0.18)';
+  ctx.lineWidth = 2.4;
+  ctx.stroke(path);
+  ctx.strokeStyle = '#7CFFB3';
+  ctx.lineWidth = 0.8;
+  ctx.stroke(path);
 
-  // Draw pickups - batch where possible
-  ctx.strokeStyle = '#FFF';
-  ctx.beginPath();
-  
+  // Pickups — yellow glow
+  const pickupPath = new Path2D();
   for(const p of gameState.pickups){
     if(!p.collected){
-      const pm = mapToMini(p.x, p.y);
-      ctx.moveTo(pm.x + 2, pm.y);
-      ctx.arc(pm.x, pm.y, 2, 0, 2 * Math.PI);
+      const px = mx(p.x), py = my(p.y);
+      pickupPath.moveTo(px + 2, py);
+      pickupPath.arc(px, py, 1.6, 0, 2 * Math.PI);
     }
   }
-  
+  ctx.fillStyle = 'rgba(255,220,120,0.95)';
+  ctx.fill(pickupPath);
+  ctx.strokeStyle = 'rgba(255,200,80,0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke(pickupPath);
+  ctx.globalCompositeOperation = prev;
+
+  // Viewport rectangle — what the main canvas is currently showing
+  const cam = gameState.camera;
+  if (cam.zoom > 0) {
+    const viewW = mainW / cam.zoom;
+    const viewH = mainH / cam.zoom;
+    const vx = mx(cam.x - viewW / 2);
+    const vy = my(cam.y - viewH / 2);
+    const vw = viewW * scale;
+    const vh = viewH * scale;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 2]);
+    ctx.strokeRect(vx, vy, vw, vh);
+    ctx.setLineDash([]);
+  }
+
+  // Ship — bright dot with directional indicator
+  const s = gameState.ship;
+  const sp = { x: mx(s.x), y: my(s.y) };
+  const dirLen = 6;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(sp.x, sp.y);
+  ctx.lineTo(sp.x - Math.sin(s.rotation) * dirLen, sp.y + Math.cos(s.rotation) * dirLen);
   ctx.stroke();
 
-  // Draw ship
-  const s = gameState.ship;
-  const sp = mapToMini(s.x, s.y);
-  ctx.fillStyle = '#FFF';
+  // Glow dot
+  const dotGrad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, 5);
+  dotGrad.addColorStop(0, 'rgba(255,255,255,1)');
+  dotGrad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = dotGrad;
   ctx.beginPath();
-  ctx.arc(sp.x, sp.y, 3, 0, 2 * Math.PI);
+  ctx.arc(sp.x, sp.y, 5, 0, Math.PI * 2);
   ctx.fill();
-  
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(sp.x, sp.y, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
   // If using offscreen canvas, copy to the visible canvas
   if (window.offscreenMiniMapCanvas && window.offscreenMiniMapCtx) {
     miniMapCtx.clearRect(0, 0, 200, 150);
@@ -2669,16 +3081,7 @@ document.getElementById('backToLevels').addEventListener('click', () => {
   showLevelSelect();
 });
 
-// Ghost toggle
-document.getElementById('ghostToggle').addEventListener('click', (e) => {
-  gameState.ghost.enabled = !gameState.ghost.enabled;
-  e.target.textContent = `Ghost: ${gameState.ghost.enabled ? 'On' : 'Off'}`;
-  e.target.classList.toggle('active', gameState.ghost.enabled);
-  
-  if (gameState.ghost.enabled) {
-    loadGhostForLevel(currentLevel);
-  }
-});
+// Ghost toggle handled by listener after init() below
 
 // Timer focus/unfocus
 document.getElementById('timer').addEventListener('mouseenter', () => {

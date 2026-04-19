@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnv, VecNormalize
@@ -20,21 +21,34 @@ from spaceace.training.trainer import Trainer, TrainingConfig
 DEFAULT_PPO_HPARAMS = dict(
     learning_rate=3e-4,
     n_steps=2048,
-    batch_size=64,
-    n_epochs=10,
+    batch_size=256,
+    n_epochs=4,
     gamma=0.995,
     gae_lambda=0.95,
     clip_range=0.2,
     ent_coef=0.01,
     vf_coef=0.5,
     max_grad_norm=0.5,
-    policy_kwargs={"net_arch": [256, 256]},
+    policy_kwargs={"net_arch": [64, 64]},
     verbose=1,
 )
 
 
+def _configure_main_process_threads(n_envs: int) -> None:
+    """Give the main-process PPO update whatever perf cores the workers aren't using."""
+    cpu = multiprocessing.cpu_count()
+    main_threads = max(1, cpu - n_envs)
+    torch.set_num_threads(main_threads)
+
+
 class _LatestModelCallback(BaseCallback):
-    """Periodically overwrite a single model file with the current weights."""
+    """Periodically overwrite latest_model.zip + vec_normalize.pkl together.
+
+    Saving vec_normalize alongside the weights keeps the dashboard's Watch
+    inference stack consistent with whatever shape the policy currently has
+    (otherwise a stale normalizer from a previous training session breaks
+    VecNormalize.load with a shape-mismatch error).
+    """
     def __init__(self, save_freq: int, save_path: str):
         super().__init__()
         self.save_freq = save_freq
@@ -43,6 +57,10 @@ class _LatestModelCallback(BaseCallback):
     def _on_step(self) -> bool:
         if self.n_calls % self.save_freq == 0:
             self.model.save(self.save_path)
+            env = self.model.get_env()
+            if hasattr(env, "save"):
+                norm_path = os.path.join(os.path.dirname(self.save_path), "vec_normalize.pkl")
+                env.save(norm_path)
         return True
 
 
@@ -90,6 +108,7 @@ class Sb3Trainer(Trainer):
         config.tensorboard_dir.mkdir(parents=True, exist_ok=True)
 
         n_envs = config.n_envs or multiprocessing.cpu_count()
+        _configure_main_process_threads(n_envs)
 
         print("=== SpaceAce RL Training ===")
         print(f"Level: {config.level}")
@@ -101,10 +120,21 @@ class Sb3Trainer(Trainer):
         print(f"Strategies: obs={config.obs} reward={config.reward}")
         print()
 
-        train_env = self._make_env(config, n_envs, subprocess=True)
-        train_env = VecNormalize(
-            train_env, norm_obs=False, norm_reward=True, clip_obs=10.0, clip_reward=10.0
+        inner_train = self._make_env(config, n_envs, subprocess=True)
+        norm_path = (
+            os.path.join(os.path.dirname(config.resume_from), "vec_normalize.pkl")
+            if config.resume_from else None
         )
+        if norm_path and os.path.exists(norm_path):
+            train_env = VecNormalize.load(norm_path, inner_train)
+            # Reward norm intentionally off: shaped rewards are bounded and stable,
+            # and a running RMS across curriculum stages produces stale scaling.
+            train_env.norm_reward = False
+            print(f"Loaded normalization stats from {norm_path}")
+        else:
+            train_env = VecNormalize(
+                inner_train, norm_obs=False, norm_reward=False, clip_obs=10.0,
+            )
 
         eval_env = self._make_env(config, 1, subprocess=False)
         eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False, clip_obs=10.0)
@@ -112,17 +142,15 @@ class Sb3Trainer(Trainer):
         if config.resume_from:
             print(f"Resuming from: {config.resume_from}")
             model = self.algo_cls.load(config.resume_from, env=train_env)
-            norm_path = os.path.join(os.path.dirname(config.resume_from), "vec_normalize.pkl")
-            if os.path.exists(norm_path):
-                train_env = VecNormalize.load(norm_path, train_env.venv)
-                print(f"Loaded normalization stats from {norm_path}")
         else:
+            base_lr = config.learning_rate
+            lr_schedule = lambda progress: base_lr * (0.1 + 0.9 * progress)
             model = self.algo_cls(
                 "MlpPolicy",
                 train_env,
                 tensorboard_log=str(config.tensorboard_dir),
                 seed=config.seed,
-                **{**DEFAULT_PPO_HPARAMS, "learning_rate": config.learning_rate},
+                **{**DEFAULT_PPO_HPARAMS, "learning_rate": lr_schedule},
             )
 
         callbacks = [
@@ -176,6 +204,7 @@ class Sb3Trainer(Trainer):
         config.tensorboard_dir.mkdir(parents=True, exist_ok=True)
 
         n_envs = config.n_envs or multiprocessing.cpu_count()
+        _configure_main_process_threads(n_envs)
 
         # Resolve any stages that need MCTS calibration.
         calibrate_stages(stages, cache=config.calibration_cache_path)
@@ -192,12 +221,21 @@ class Sb3Trainer(Trainer):
 
         # Build initial env from the first stage.
         first = stages[0]
-        train_env = self._make_curriculum_vec_env(
+        inner_train = self._make_curriculum_vec_env(
             first.levels, first.max_episode_steps, n_envs, config, subprocess=True,
         )
-        train_env = VecNormalize(
-            train_env, norm_obs=False, norm_reward=True, clip_obs=10.0, clip_reward=10.0,
+        norm_path = (
+            os.path.join(os.path.dirname(config.resume_from), "vec_normalize.pkl")
+            if config.resume_from else None
         )
+        if norm_path and os.path.exists(norm_path):
+            train_env = VecNormalize.load(norm_path, inner_train)
+            train_env.norm_reward = False
+            print(f"Loaded normalization stats from {norm_path}")
+        else:
+            train_env = VecNormalize(
+                inner_train, norm_obs=False, norm_reward=False, clip_obs=10.0,
+            )
 
         eval_env = self._make_curriculum_vec_env(
             first.levels, first.max_episode_steps, 1, config, subprocess=False,
@@ -207,17 +245,15 @@ class Sb3Trainer(Trainer):
         if config.resume_from:
             print(f"Resuming from: {config.resume_from}")
             model = self.algo_cls.load(config.resume_from, env=train_env)
-            norm_path = os.path.join(os.path.dirname(config.resume_from), "vec_normalize.pkl")
-            if os.path.exists(norm_path):
-                train_env = VecNormalize.load(norm_path, train_env.venv)
-                print(f"Loaded normalization stats from {norm_path}")
         else:
+            base_lr = config.learning_rate
+            lr_schedule = lambda progress: base_lr * (0.1 + 0.9 * progress)
             model = self.algo_cls(
                 "MlpPolicy",
                 train_env,
                 tensorboard_log=str(config.tensorboard_dir),
                 seed=config.seed,
-                **{**DEFAULT_PPO_HPARAMS, "learning_rate": config.learning_rate},
+                **{**DEFAULT_PPO_HPARAMS, "learning_rate": lr_schedule},
             )
 
         curriculum_cb = CurriculumCallback(
@@ -228,6 +264,7 @@ class Sb3Trainer(Trainer):
             action_repeat=config.action_repeat,
             n_envs=n_envs,
             pathfinder_backend=config.pathfinder_backend,
+            eval_env=eval_env,
         )
 
         callbacks = [
@@ -277,6 +314,10 @@ class Sb3Trainer(Trainer):
         ]
         # CurriculumCallback uses env_method("set_curriculum", ...) which works
         # with both SubprocVecEnv and DummyVecEnv via _CurriculumMonitor.
-        if subprocess and n_envs > 1:
-            return SubprocVecEnv(thunks, start_method="fork")
+        # DummyVecEnv is the default: on M1 with a small policy, IPC cost of
+        # SubprocVecEnv dominates and we measured ~20% throughput loss from it.
+        # Set SPACEACE_USE_SUBPROC=1 to opt back into subprocess workers (e.g.
+        # when running on a many-core server where real parallelism wins).
+        if os.environ.get("SPACEACE_USE_SUBPROC") == "1" and subprocess and n_envs > 1:
+            return SubprocVecEnv(thunks, start_method="spawn")
         return DummyVecEnv(thunks)
