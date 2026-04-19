@@ -38,23 +38,17 @@ class Config:
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
+# Note: baseline now *includes* early-exit (matches the shipping defaults).
+# `no_ee` reproduces the pre-shipping full-budget search for comparison.
 CONFIGS: dict[str, Config] = {
     "baseline": Config("baseline", {}),
-    "rollout_10": Config("rollout_10", {"rollout_frames": 10}),
-    "rollout_20": Config("rollout_20", {"rollout_frames": 20}),
-    "rollout_30": Config("rollout_30", {"rollout_frames": 30}),
+    "no_ee": Config("no_ee", {"early_exit_check_every": 0}),
     "ee_500_60_5": Config("ee_500_60_5", {
         "early_exit_check_every": 500,
         "early_exit_visit_frac": 0.6,
         "early_exit_q_gap": 5.0,
     }),
     "ee_500_70_10": Config("ee_500_70_10", {
-        "early_exit_check_every": 500,
-        "early_exit_visit_frac": 0.7,
-        "early_exit_q_gap": 10.0,
-    }),
-    "roll20_ee": Config("roll20_ee", {
-        "rollout_frames": 20,
         "early_exit_check_every": 500,
         "early_exit_visit_frac": 0.7,
         "early_exit_q_gap": 10.0,

@@ -96,20 +96,16 @@ def parse_args() -> argparse.Namespace:
                    "full strength. Below this, bias fades linearly to 0. 0 (default) "
                    "disables scaling — constant bias everywhere, including tight corners. "
                    "Set >0 only if the agent is thrusting into walls.")
-    p.add_argument("--rollout-frames", type=int, default=0,
-                   help="MCTS leaf policy rollout length (frames). At each expanded leaf, "
-                   "runs N frames of argmax-prior rollout before heuristic eval. "
-                   "Typical: 20-40. 0 (default) disables.")
-    p.add_argument("--ee-check-every", type=int, default=0,
+    p.add_argument("--ee-check-every", type=int, default=500,
                    help="MCTS adaptive early-exit: check root visit distribution every N "
-                   "sims; stop early when one action dominates. 0 (default) disables. "
-                   "Typical: 500-1000.")
-    p.add_argument("--ee-visit-frac", type=float, default=0.6,
+                   "sims; stop early when the best action dominates. Default 500 "
+                   "(on). Set to 0 to disable.")
+    p.add_argument("--ee-visit-frac", type=float, default=0.7,
                    help="Minimum root visit fraction of the best action to trigger "
-                   "early-exit (default 0.6).")
-    p.add_argument("--ee-q-gap", type=float, default=0.0,
+                   "early-exit (default 0.7).")
+    p.add_argument("--ee-q-gap", type=float, default=10.0,
                    help="Minimum mean-value gap between best and runner-up to trigger "
-                   "early-exit (default 0.0 = visit-fraction only).")
+                   "early-exit (default 10.0).")
     p.add_argument("--widen-k", type=float, default=0.0,
                    help="MCTS progressive widening coefficient. 0 (default) = disabled. "
                    "Typical: 1.0-1.5. Shrinks effective branching factor at shallow-visit "
@@ -179,7 +175,6 @@ def main() -> None:
         "action_repeat_depth_bonus": args.ar_depth_bonus,
         "action_repeat_max": args.ar_max,
         "widen_k": args.widen_k,
-        "rollout_frames": args.rollout_frames,
         "early_exit_check_every": args.ee_check_every,
         "early_exit_visit_frac": args.ee_visit_frac,
         "early_exit_q_gap": args.ee_q_gap,

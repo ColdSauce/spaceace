@@ -94,18 +94,6 @@ pub struct MCTSParams {
     /// nodes so promising lines grow deeper for the same sim budget.
     /// Typical values: 1.0-1.5.
     pub widen_k: f64,
-    /// Short policy rollout at each newly-expanded leaf before the heuristic
-    /// evaluator is called. Each step picks the argmax of `compute_action_priors`
-    /// (the same rule-based policy PUCT/widening uses) and steps the real sim
-    /// forward one frame. Rollout rewards are accumulated into the leaf value
-    /// the same way expansion-phase rewards are. 0 = disabled.
-    ///
-    /// The heuristic is strong but horizon-bounded: past the last expansion
-    /// edge it can't see whether a near-wall state will actually crash, or
-    /// whether a committed swoop will land the pickup. A ~30-frame greedy
-    /// rollout adds ~0.5s of real-game lookahead per leaf, which is exactly
-    /// the regime where brake-vs-swoop decisions resolve.
-    pub rollout_frames: u32,
     /// Adaptive early-exit: after every `early_exit_check_every` sims, check
     /// the root visit distribution and stop early if one action clearly
     /// dominates (visit fraction ≥ `early_exit_visit_frac` AND mean-value
@@ -490,21 +478,6 @@ fn compute_action_priors(game: &RealSpaceAceGame, pathfinder: &PathfinderKind, g
         }
     }
     priors
-}
-
-/// Argmax over an action-prior distribution, respecting the goofy action mask.
-/// Used to drive the leaf policy rollout deterministically (greedy policy).
-fn argmax_prior_action(priors: &[f64; NUM_ACTIONS], goofy: bool) -> u8 {
-    let allowed: &[u8] = if goofy { &GOOFY_ACTIONS } else { &[0, 1, 2, 3, 4, 5] };
-    let mut best = allowed[0];
-    let mut best_p = f64::NEG_INFINITY;
-    for &a in allowed {
-        if priors[a as usize] > best_p {
-            best_p = priors[a as usize];
-            best = a;
-        }
-    }
-    best
 }
 
 /// PUCT selection: picks the action that maximises
@@ -973,36 +946,11 @@ impl MCTSTree {
             break;
         }
 
-        // --- LEAF POLICY ROLLOUT + EVALUATION ---
-        // Rollout only applies to freshly-expanded leaves (leaf_value_override
-        // is None). Transposition-linked leaves already carry a mean value
-        // that integrates over their subtree; rolling out from there would
-        // double-count that information.
+        // --- EVALUATION ---
         let value = match leaf_value_override {
             Some(v) => reward + params.gamma * v,
             None => {
                 game.load_state(self.nodes[node_idx].snapshot.clone());
-
-                if params.rollout_frames > 0 && !self.nodes[node_idx].is_terminal {
-                    let mut frames_left = params.rollout_frames;
-                    // rollout_step_count tracks absolute steps so truncation
-                    // matches the real episode's max_steps semantics.
-                    let mut rollout_steps = self.nodes[node_idx].step_count;
-                    while frames_left > 0 {
-                        let priors = compute_action_priors(game, pathfinder, self.goofy);
-                        let a = argmax_prior_action(&priors, self.goofy);
-                        let ctrl = ACTIONS[a as usize];
-                        game.set_controls(ctrl[0], ctrl[1], ctrl[2]);
-                        game.step(1.0 / 60.0);
-                        rollout_steps += 1;
-                        reward += crate::calculate_reward(game) as f64;
-                        if game.is_terminated() || rollout_steps >= params.max_steps {
-                            break;
-                        }
-                        frames_left -= 1;
-                    }
-                }
-
                 let heuristic = evaluate_state(game, pathfinder);
                 reward + params.gamma * (heuristic - self.root_baseline)
             }

@@ -26,14 +26,14 @@ class MCTSAgent(BaseAgent):
         self._widen_k = kwargs.get("widen_k", 0.0)
         self._thrust_bias = float(kwargs.get("thrust_bias", 0.0))
         self._thrust_bias_safe_dist = float(kwargs.get("thrust_bias_safe_dist", 0.0))
-        # Leaf policy rollout — extends each leaf's lookahead by N greedy-prior
-        # frames before the heuristic is called. 0 disables.
-        self._rollout_frames = int(kwargs.get("rollout_frames", 0))
         # Adaptive early-exit: after every `check_every` sims, stop if one
-        # action dominates by visits and Q-gap. 0 disables.
-        self._ee_check_every = int(kwargs.get("early_exit_check_every", 0))
-        self._ee_visit_frac = float(kwargs.get("early_exit_visit_frac", 0.6))
-        self._ee_q_gap = float(kwargs.get("early_exit_q_gap", 0.0))
+        # action dominates by visits and Q-gap. Defaults tuned from the
+        # scripts/bench_mcts.py sweep — at 0.7/10.0 on levels 4/6/7 with
+        # 3000 sims, step quality is within noise of the full-budget run
+        # but wall time is ~3-4× lower. Set check_every=0 to disable.
+        self._ee_check_every = int(kwargs.get("early_exit_check_every", 500))
+        self._ee_visit_frac = float(kwargs.get("early_exit_visit_frac", 0.7))
+        self._ee_q_gap = float(kwargs.get("early_exit_q_gap", 10.0))
 
         use_momentum = kwargs.get("momentum_pathfinder", False)
         self._mcts = spaceace_rl.PyMCTSEngine(level, max_steps, use_momentum)
@@ -93,7 +93,6 @@ class MCTSAgent(BaseAgent):
             self._ar_max,
             self._widen_k,
             self._thrust_bias_safe_dist,
-            self._rollout_frames,
             self._ee_check_every,
             self._ee_visit_frac,
             self._ee_q_gap,

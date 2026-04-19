@@ -337,7 +337,7 @@ impl PyMCTSEngine {
     /// `search_with_reuse` but any stats entry for a masked action is omitted,
     /// and the returned best_action is guaranteed not to be in `masked_actions`
     /// (or 255 if no legal action remains).
-    #[pyo3(signature = (cp, masked_actions, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    #[pyo3(signature = (cp, masked_actions, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
     fn search_from_checkpoint_masked(
         &mut self,
         cp: &PyMCTSTreeCheckpoint,
@@ -346,7 +346,7 @@ impl PyMCTSEngine {
         shaping_weight: f64, goofy: bool, thrust_bias: f64,
         action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
         thrust_bias_safe_dist: f64,
-        rollout_frames: u32, early_exit_check_every: u32,
+        early_exit_check_every: u32,
         early_exit_visit_frac: f64, early_exit_q_gap: f64,
     ) -> (u8, Vec<(u8, u32, f64)>, f64) {
         self.tree_cache = Some(cp.tree.clone());
@@ -356,7 +356,7 @@ impl PyMCTSEngine {
             num_simulations, action_repeat, c_explore, gamma,
             max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
             action_repeat_depth_bonus, action_repeat_max, widen_k,
-            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
         };
         let tree = self.tree_cache.as_mut().unwrap();
         tree.nodes.reserve(num_simulations as usize);
@@ -385,7 +385,7 @@ impl PyMCTSEngine {
         let params = MCTSParams {
             num_simulations, action_repeat, c_explore, gamma,
             max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
-            rollout_frames: 0, early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
+            early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
         };
         mcts_search(
             &mut self.sim_game,
@@ -399,12 +399,12 @@ impl PyMCTSEngine {
     /// Search with tree reuse — carries the previous decision's subtree forward
     /// when the caller advances by exactly `action_repeat` frames of the prior
     /// best action (validated by snapshot equality).
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
     fn search_with_reuse(&mut self, state: &PyGameState, num_simulations: u32,
                          action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64,
                          action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
                          thrust_bias_safe_dist: f64,
-                         rollout_frames: u32, early_exit_check_every: u32,
+                         early_exit_check_every: u32,
                          early_exit_visit_frac: f64, early_exit_q_gap: f64)
         -> (u8, Vec<(u8, u32, f64)>, f64)
     {
@@ -412,7 +412,7 @@ impl PyMCTSEngine {
             num_simulations, action_repeat, c_explore, gamma,
             max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
             action_repeat_depth_bonus, action_repeat_max, widen_k,
-            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
         };
 
         let reused = if let (Some(tree), Some(last_action)) = (self.tree_cache.as_mut(), self.last_chosen_action) {
@@ -456,14 +456,14 @@ impl PyMCTSEngine {
     ///
     /// Returns (best_action, [(action_idx, total_visits, weighted_mean_value)],
     /// mean_root_baseline).
-    #[pyo3(signature = (state, num_simulations, num_threads, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, rollout_frames=0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
+    #[pyo3(signature = (state, num_simulations, num_threads, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
     fn search_parallel(&mut self, py: Python<'_>, state: &PyGameState,
                        num_simulations: u32, num_threads: u32,
                        action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64,
                        goofy: bool, thrust_bias: f64,
                        action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
                        thrust_bias_safe_dist: f64,
-                       rollout_frames: u32, early_exit_check_every: u32,
+                       early_exit_check_every: u32,
                        early_exit_visit_frac: f64, early_exit_q_gap: f64)
         -> (u8, Vec<(u8, u32, f64)>, f64)
     {
@@ -471,7 +471,7 @@ impl PyMCTSEngine {
             num_simulations, action_repeat, c_explore, gamma,
             max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
             action_repeat_depth_bonus, action_repeat_max, widen_k,
-            rollout_frames, early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
+            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
         };
         // Release the GIL — rayon tasks are pure Rust and don't need Python.
         py.allow_threads(|| {
@@ -515,7 +515,7 @@ impl PyMCTSEngine {
         let params = MCTSParams {
             num_simulations, action_repeat, c_explore, gamma,
             max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
-            rollout_frames: 0, early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
+            early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
         };
         mcts_search_with_stats(
             &mut self.sim_game,
@@ -618,7 +618,6 @@ impl PyMCTSEngine {
                     action_repeat_depth_bonus: 0,
                     action_repeat_max: 20,
                     widen_k: 0.0,
-                    rollout_frames: 0,
                     early_exit_check_every: 0,
                     early_exit_visit_frac: 0.6,
                     early_exit_q_gap: 0.0,
