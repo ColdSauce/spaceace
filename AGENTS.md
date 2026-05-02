@@ -1,3 +1,14 @@
+# Agent instructions
+
+Use `bd` (beads) for all task tracking. Do not use Markdown plan files.
+
+- `bd ready` — what's actionable
+- `bd create "title" -t task -p 1` — file new work
+- `bd show <id>` — read details
+- `bd update <id> --status in_progress`
+- `bd close <id> --reason "..."`
+- `bd --json` — machine-readable output for parsing
+
 # SpaceAce RL
 
 Rust game engine + Python RL pipeline for the SpaceAce arcade game.
@@ -22,7 +33,7 @@ Do NOT use `maturin develop` — it conflicts with uv's environment management. 
 
 ## CLI Options (run.py)
 
-- `--agent {random,ppo,mcts}` — agent type
+- `--agent {random,ppo,mcts,alphazero}` — agent type
 - `--level N` — game level (0-7)
 - `--episodes N` — number of episodes (default 5)
 - `--headless` — disable pygame visualization
@@ -46,34 +57,30 @@ Do NOT use `maturin develop` — it conflicts with uv's environment management. 
 ### Python (`spaceace/`)
 - `agents/base.py` — `BaseAgent` interface
 - `agents/mcts/agent.py` — MCTS agent (delegates to Rust `PyMCTSEngine`)
+- `agents/alphazero/` — AlphaZero PUCT MCTS + neural network evaluator
 - `agents/ppo/` — PPO agent using stable-baselines3
 - `agents/random_agent.py` — random baseline
 - `env/direct.py` — `SpaceAceDirectEnv` wrapping Rust `PyGameInstance`
 - `env/viz.py` — pygame renderer with HUD, minimap, debug path overlay
 
-### Key Design Decisions
-- MCTS uses heuristic leaf evaluation (pathfinder distance + velocity alignment + wall TTI), not random rollouts
-- Pathfinder uses BFS on a 10px grid with 35px wall inflation for ship clearance
-- Action space: 6 actions (coast, thrust, rotate_left, rotate_left+thrust, rotate_right, rotate_right+thrust)
-- `action_repeat` groups frames into macro-actions for deeper lookahead per tree edge
-- Game state save/load uses opaque Rust `GameSnapshot` objects (no serialization overhead)
-
 ## Inspecting training jobs / runs
 
-To debug training without spelunking through huge job logs by hand, use the
-read-only introspection CLI — it pulls from `dashboard/spaceace_dashboard.db`,
-`dashboard/job_logs/`, and the synced TB metric snapshots in one go:
+Training is logged in three places: `dashboard/job_logs/job_<id>.log` (raw
+stdout), `tensorboard_logs/<run_name>/` (SB3 scalars), and the SQLite DB at
+`dashboard/spaceace_dashboard.db` (jobs, runs, metric snapshots, checkpoints).
+
+For debugging, prefer the unified read-only CLI rather than grepping logs by
+hand — it pulls from all three sources and is friendly to LLM consumption:
 
 ```bash
 uv run python scripts/inspect_run.py list                  # recent jobs + runs
-uv run python scripts/inspect_run.py job  <job-id>         # args, errors, log tail, linked TB run + metrics
+uv run python scripts/inspect_run.py job  <job-id>         # full picture: args, errors, log tail, linked TB run
 uv run python scripts/inspect_run.py run  <run-name|id>    # metric summary, linked job, checkpoints
 uv run python scripts/inspect_run.py errors <job-id>       # tracebacks only
 uv run python scripts/inspect_run.py tail   <job-id> -n 80
 ```
 
-Add `--json` for machine-readable output.
-
+Pass `--json` on any subcommand for machine-readable output.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
