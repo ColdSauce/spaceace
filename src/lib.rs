@@ -6,23 +6,15 @@ pub mod real_collision;
 pub mod real_map_parser;
 pub mod real_game;
 pub mod pathfinder;
-pub mod mcts;
-#[cfg(feature = "alphazero")]
-pub mod nn_evaluator;
-#[cfg(feature = "alphazero")]
-pub mod alphazero_mcts;
+pub mod solver;
 
 use real_game::{RealSpaceAceGame, GameSnapshot};
 use real_map_parser::parse_map_json;
-use pathfinder::{PathfinderGrid, MomentumPathfinder, PathfinderKind};
-use mcts::{mcts_search, mcts_search_with_stats, mcts_search_parallel, get_heuristic_breakdown, MCTSParams, MCTSTree, set_rng_seed};
-#[cfg(feature = "alphazero")]
-use nn_evaluator::{NNEvaluator, build_alphazero_obs};
-#[cfg(feature = "alphazero")]
-use alphazero_mcts::{alphazero_search, set_rng_seed as set_alphazero_rng_seed, AlphaZeroParams};
+use pathfinder::PathfinderGrid;
+use solver::{AceSolver, BeamParams};
 
 // ---------------------------------------------------------------------------
-// Shared observation / reward logic (used by both PyO3 and IPC paths)
+// Shared observation / reward logic
 // ---------------------------------------------------------------------------
 
 pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
@@ -57,7 +49,6 @@ pub fn build_observation(game: &RealSpaceAceGame) -> Vec<f32> {
     obs.push(if h > 0.0 { (state.ship_y - bounds.min_y) / h } else { 0.5 });
 
     // Minimum time-to-impact across 8 raycast directions (1 value, index 19)
-    // Computed here to avoid redundant sin/cos in Python.
     let cos_r = state.ship_rotation.cos();
     let sin_r = state.ship_rotation.sin();
     let base_dirs: [(f32, f32); 8] = [
@@ -252,424 +243,11 @@ impl PyGameInstance {
     }
 }
 
-/// Opaque checkpoint of an `MCTSTree` plus the action the engine was about to
-/// commit when the checkpoint was taken. Lets the caller "rewind": commit an
-/// action, observe the real rollout, and if it turned out badly, restore the
-/// engine to this state and try a different action — reusing all the search
-/// work that led up to the decision instead of rebuilding from scratch.
-#[pyclass]
-#[derive(Clone)]
-struct PyMCTSTreeCheckpoint {
-    tree: MCTSTree,
-    last_chosen_action: Option<u8>,
-}
-
-#[pyclass]
-struct PyMCTSEngine {
-    sim_game: RealSpaceAceGame,
-    pathfinder: PathfinderKind,
-    max_steps: u32,
-    /// Persistent MCTS tree reused across successive `search_with_stats` calls.
-    /// When the caller advances the real game by exactly the action_repeat used
-    /// by the tree's best action, we can re-root the tree at that child instead
-    /// of discarding it — effectively carrying simulation budget forward.
-    tree_cache: Option<MCTSTree>,
-    /// Action the cached tree's root selected. Next call, we re-root at the
-    /// child reached by this action (validated via snapshot equality).
-    last_chosen_action: Option<u8>,
-    /// How many times we've reused / rebuilt the tree — exposed for debugging.
-    reuse_hits: u64,
-    reuse_misses: u64,
-}
-
-#[pymethods]
-impl PyMCTSEngine {
-    #[new]
-    #[pyo3(signature = (level, max_steps, use_momentum_pathfinder=false))]
-    fn new(level: usize, max_steps: u32, use_momentum_pathfinder: bool) -> PyResult<Self> {
-        let mut sim_game = RealSpaceAceGame::new();
-        sim_game.load_level(level)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
-                format!("Failed to load level {}: {:?}", level, e)
-            ))?;
-        let pathfinder = if use_momentum_pathfinder {
-            PathfinderKind::Momentum(MomentumPathfinder::build(&sim_game))
-        } else {
-            PathfinderKind::Spatial(PathfinderGrid::build(&sim_game))
-        };
-        Ok(PyMCTSEngine {
-            sim_game, pathfinder, max_steps,
-            tree_cache: None,
-            last_chosen_action: None,
-            reuse_hits: 0,
-            reuse_misses: 0,
-        })
-    }
-
-    /// Clear the cached MCTS tree (call on episode reset to avoid reusing a
-    /// tree built from the previous episode's state).
-    fn reset_tree_cache(&mut self) {
-        self.tree_cache = None;
-        self.last_chosen_action = None;
-    }
-
-    fn get_reuse_stats(&self) -> (u64, u64) {
-        (self.reuse_hits, self.reuse_misses)
-    }
-
-    /// Snapshot the current cached tree so it can be restored later after the
-    /// caller commits an action and advances the real env. Returns None if no
-    /// tree has been built yet (e.g., before the first search).
-    fn checkpoint_tree(&self) -> Option<PyMCTSTreeCheckpoint> {
-        self.tree_cache.as_ref().map(|tree| PyMCTSTreeCheckpoint {
-            tree: tree.clone(),
-            last_chosen_action: self.last_chosen_action,
-        })
-    }
-
-    /// Install a previously taken checkpoint as the current tree. After this
-    /// returns, the next `search_with_reuse` call will resume from that tree
-    /// (reusing all simulations it had accumulated).
-    fn restore_tree_checkpoint(&mut self, cp: &PyMCTSTreeCheckpoint) {
-        self.tree_cache = Some(cp.tree.clone());
-        self.last_chosen_action = cp.last_chosen_action;
-    }
-
-    /// Search from a checkpoint with a subset of root actions masked out.
-    /// Lets the caller say: "I already tried these actions from this state and
-    /// they were bad — pick a different one." Returns the same tuple shape as
-    /// `search_with_reuse` but any stats entry for a masked action is omitted,
-    /// and the returned best_action is guaranteed not to be in `masked_actions`
-    /// (or 255 if no legal action remains).
-    #[pyo3(signature = (cp, masked_actions, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
-    fn search_from_checkpoint_masked(
-        &mut self,
-        cp: &PyMCTSTreeCheckpoint,
-        masked_actions: Vec<u8>,
-        num_simulations: u32, action_repeat: u32, c_explore: f64, gamma: f64,
-        shaping_weight: f64, goofy: bool, thrust_bias: f64,
-        action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
-        thrust_bias_safe_dist: f64,
-        early_exit_check_every: u32,
-        early_exit_visit_frac: f64, early_exit_q_gap: f64,
-    ) -> (u8, Vec<(u8, u32, f64)>, f64) {
-        self.tree_cache = Some(cp.tree.clone());
-        self.last_chosen_action = cp.last_chosen_action;
-
-        let params = MCTSParams {
-            num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
-            action_repeat_depth_bonus, action_repeat_max, widen_k,
-            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
-        };
-        let tree = self.tree_cache.as_mut().unwrap();
-        tree.nodes.reserve(num_simulations as usize);
-        tree.run_simulations(&mut self.sim_game, &self.pathfinder, &params);
-
-        let (_best, stats, root_baseline) = tree.best_action_and_stats();
-
-        // Filter masked actions out of stats and pick a new best by visit count
-        // from the remaining. Ties broken by mean value (more reliable than
-        // visits alone when the masked action was the clear winner).
-        let filtered: Vec<(u8, u32, f64)> = stats.into_iter()
-            .filter(|(a, _, _)| !masked_actions.contains(a))
-            .collect();
-        let best_action = filtered.iter()
-            .max_by(|x, y| x.1.cmp(&y.1).then_with(|| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal)))
-            .map(|(a, _, _)| *a)
-            .unwrap_or(255);
-
-        self.last_chosen_action = if best_action == 255 { None } else { Some(best_action) };
-        (best_action, filtered, root_baseline)
-    }
-
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, thrust_bias_safe_dist=0.0))]
-    fn search(&mut self, state: &PyGameState, num_simulations: u32,
-              action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64, thrust_bias_safe_dist: f64) -> u8 {
-        let params = MCTSParams {
-            num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
-            early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
-        };
-        mcts_search(
-            &mut self.sim_game,
-            &self.pathfinder,
-            state.snapshot.clone(),
-            state.step_count,
-            &params,
-        )
-    }
-
-    /// Search with tree reuse — carries the previous decision's subtree forward
-    /// when the caller advances by exactly `action_repeat` frames of the prior
-    /// best action (validated by snapshot equality).
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
-    fn search_with_reuse(&mut self, state: &PyGameState, num_simulations: u32,
-                         action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64,
-                         action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
-                         thrust_bias_safe_dist: f64,
-                         early_exit_check_every: u32,
-                         early_exit_visit_frac: f64, early_exit_q_gap: f64)
-        -> (u8, Vec<(u8, u32, f64)>, f64)
-    {
-        let params = MCTSParams {
-            num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
-            action_repeat_depth_bonus, action_repeat_max, widen_k,
-            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
-        };
-
-        let reused = if let (Some(tree), Some(last_action)) = (self.tree_cache.as_mut(), self.last_chosen_action) {
-            tree.try_reroot_to_action(
-                last_action,
-                &state.snapshot,
-                &mut self.sim_game,
-                &self.pathfinder,
-                params.gamma,
-            )
-        } else {
-            false
-        };
-
-        if reused {
-            self.reuse_hits += 1;
-        } else {
-            self.reuse_misses += 1;
-            self.tree_cache = Some(MCTSTree::new(
-                state.snapshot.clone(),
-                state.step_count,
-                &mut self.sim_game,
-                &self.pathfinder,
-                goofy,
-            ));
-        }
-
-        let tree = self.tree_cache.as_mut().unwrap();
-        tree.nodes.reserve(num_simulations as usize);
-        tree.run_simulations(&mut self.sim_game, &self.pathfinder, &params);
-
-        let (best_action, stats, root_baseline) = tree.best_action_and_stats();
-        self.last_chosen_action = Some(best_action);
-        (best_action, stats, root_baseline)
-    }
-
-    /// Root-parallel MCTS: runs `num_threads` independent trees, each with a
-    /// share of `num_simulations`, and merges root action stats. Tree-cache is
-    /// bypassed on this path — every call builds fresh trees. For persistent
-    /// tree reuse, use `search_with_reuse` instead (serial).
-    ///
-    /// Returns (best_action, [(action_idx, total_visits, weighted_mean_value)],
-    /// mean_root_baseline).
-    #[pyo3(signature = (state, num_simulations, num_threads, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, action_repeat_depth_bonus=0, action_repeat_max=20, widen_k=0.0, thrust_bias_safe_dist=0.0, early_exit_check_every=0, early_exit_visit_frac=0.6, early_exit_q_gap=0.0))]
-    fn search_parallel(&mut self, py: Python<'_>, state: &PyGameState,
-                       num_simulations: u32, num_threads: u32,
-                       action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64,
-                       goofy: bool, thrust_bias: f64,
-                       action_repeat_depth_bonus: u32, action_repeat_max: u32, widen_k: f64,
-                       thrust_bias_safe_dist: f64,
-                       early_exit_check_every: u32,
-                       early_exit_visit_frac: f64, early_exit_q_gap: f64)
-        -> (u8, Vec<(u8, u32, f64)>, f64)
-    {
-        let params = MCTSParams {
-            num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false,
-            action_repeat_depth_bonus, action_repeat_max, widen_k,
-            early_exit_check_every, early_exit_visit_frac, early_exit_q_gap,
-        };
-        // Release the GIL — rayon tasks are pure Rust and don't need Python.
-        py.allow_threads(|| {
-            mcts_search_parallel(
-                &self.sim_game,
-                &self.pathfinder,
-                state.snapshot.clone(),
-                state.step_count,
-                &params,
-                num_threads,
-            )
-        })
-    }
-
-    /// Transposition-table statistics for the currently cached tree, as
-    /// (hits, misses). Hits = expansions merged with an existing node of the
-    /// same quantized state; misses = fresh node creations. Resets when the
-    /// tree is rebuilt.
-    fn get_transposition_stats(&self) -> (u64, u64) {
-        match &self.tree_cache {
-            Some(t) => (t.transposition_hits, t.transposition_misses),
-            None => (0, 0),
-        }
-    }
-
-    fn get_debug_path(&self, state: &PyGameState) -> Vec<(f32, f32)> {
-        let collected: Vec<bool> = state.snapshot.pickups.iter().map(|p| p.collected).collect();
-        let ship_x = state.snapshot.physics.x;
-        let ship_y = state.snapshot.physics.y;
-        let ship_vx = state.snapshot.physics.vx;
-        let ship_vy = state.snapshot.physics.vy;
-        self.pathfinder.get_debug_path(ship_x, ship_y, ship_vx, ship_vy, &collected)
-    }
-
-    /// Returns (best_action, [(action_idx, visits, mean_value)], root_heuristic)
-    #[pyo3(signature = (state, num_simulations, action_repeat, c_explore, gamma, shaping_weight=0.5, goofy=false, thrust_bias=0.0, thrust_bias_safe_dist=0.0))]
-    fn search_with_stats(&mut self, state: &PyGameState, num_simulations: u32,
-                         action_repeat: u32, c_explore: f64, gamma: f64, shaping_weight: f64, goofy: bool, thrust_bias: f64, thrust_bias_safe_dist: f64)
-        -> (u8, Vec<(u8, u32, f64)>, f64)
-    {
-        let params = MCTSParams {
-            num_simulations, action_repeat, c_explore, gamma,
-            max_steps: self.max_steps, shaping_weight, goofy, thrust_bias, thrust_bias_safe_dist, use_puct: false, action_repeat_depth_bonus: 0, action_repeat_max: 20, widen_k: 0.0,
-            early_exit_check_every: 0, early_exit_visit_frac: 0.6, early_exit_q_gap: 0.0,
-        };
-        mcts_search_with_stats(
-            &mut self.sim_game,
-            &self.pathfinder,
-            state.snapshot.clone(),
-            state.step_count,
-            &params,
-        )
-    }
-
-    /// Returns (path_distance, dir_x, dir_y) from pathfinder for current state
-    fn get_pathfinder_stats(&self, state: &PyGameState) -> (f64, f64, f64) {
-        let collected: Vec<bool> = state.snapshot.pickups.iter().map(|p| p.collected).collect();
-        let ship_x = state.snapshot.physics.x;
-        let ship_y = state.snapshot.physics.y;
-        let ship_vx = state.snapshot.physics.vx;
-        let ship_vy = state.snapshot.physics.vy;
-        self.pathfinder.get_nearest_pickup_info(
-            ship_x, ship_y, ship_vx, ship_vy, &collected
-        )
-    }
-
-    /// Returns (target_idx, target_x, target_y, path_dist, euclidean_dist, dir_x, dir_y)
-    fn get_debug_target_info(&self, state: &PyGameState) -> (i32, f32, f32, f64, f64, f64, f64) {
-        let collected: Vec<bool> = state.snapshot.pickups.iter().map(|p| p.collected).collect();
-        let ship_x = state.snapshot.physics.x;
-        let ship_y = state.snapshot.physics.y;
-        let ship_vx = state.snapshot.physics.vx;
-        let ship_vy = state.snapshot.physics.vy;
-        self.pathfinder.get_debug_target_info(ship_x, ship_y, ship_vx, ship_vy, &collected)
-    }
-
-    /// Returns heuristic breakdown dict for debug display
-    fn get_heuristic_breakdown<'py>(&mut self, py: Python<'py>, state: &PyGameState) -> PyResult<Bound<'py, PyDict>> {
-        let bd = get_heuristic_breakdown(
-            &mut self.sim_game,
-            &self.pathfinder,
-            state.snapshot.clone(),
-        );
-        let d = PyDict::new(py);
-        d.set_item("total", bd.total)?;
-        d.set_item("pickups_score", bd.pickups_score)?;
-        d.set_item("proximity_score", bd.proximity_score)?;
-        d.set_item("velocity_score", bd.velocity_score)?;
-        d.set_item("orientation_score", bd.orientation_score)?;
-        d.set_item("tti_penalty", bd.tti_penalty)?;
-        d.set_item("route_score", bd.route_score)?;
-        d.set_item("route_length", bd.route_length)?;
-        d.set_item("path_dist", bd.path_dist)?;
-        d.set_item("dir_x", bd.dir_x)?;
-        d.set_item("dir_y", bd.dir_y)?;
-        d.set_item("speed_toward", bd.speed_toward)?;
-        d.set_item("alignment", bd.alignment)?;
-        d.set_item("min_tti", bd.min_tti)?;
-        Ok(d)
-    }
-
-    /// Play multiple games using regular MCTS with dynamic sim/action_repeat scaling.
-    /// Matches the behavior of the Python MCTSAgent (scales sims near walls, action_repeat with speed).
-    /// Returns list of (completed, crashed, steps) per game.
-    #[pyo3(signature = (num_games, num_simulations, action_repeat=5, c_explore=1.41, gamma=0.99, shaping_weight=0.5, max_steps=3000))]
-    fn play_games(&mut self, num_games: u32, num_simulations: u32,
-                  action_repeat: u32, c_explore: f64, gamma: f64,
-                  shaping_weight: f64, max_steps: u32)
-        -> Vec<(bool, bool, u32)>
-    {
-        let mut results = Vec::new();
-
-        for _ in 0..num_games {
-            self.sim_game.reset();
-            let mut step: u32 = 0;
-
-            loop {
-                let snapshot = self.sim_game.save_state();
-
-                // Dynamic scaling matching Python MCTSAgent behavior
-                let state = self.sim_game.get_state();
-                let speed = ((state.ship_vx * state.ship_vx + state.ship_vy * state.ship_vy) as f64).sqrt();
-                let wall_distances = self.sim_game.get_wall_distances();
-                let min_wall_dist = wall_distances.iter().cloned().fold(f32::INFINITY, f32::min) as f64;
-
-                // action_repeat scales with speed
-                let dynamic_ar = action_repeat + (speed / 50.0) as u32;
-
-                // num_simulations scales near walls and at high speed
-                let mut dynamic_sims = num_simulations as f64;
-                if min_wall_dist < 150.0 {
-                    dynamic_sims *= 1.0 + (150.0 - min_wall_dist) / 150.0;
-                }
-                dynamic_sims *= 1.0 + speed / 300.0;
-
-                let params = MCTSParams {
-                    num_simulations: dynamic_sims as u32,
-                    action_repeat: dynamic_ar,
-                    c_explore, gamma, max_steps, shaping_weight,
-                    goofy: false,
-                    thrust_bias: 0.0,
-                    thrust_bias_safe_dist: 0.0,
-                    use_puct: false,
-                    action_repeat_depth_bonus: 0,
-                    action_repeat_max: 20,
-                    widen_k: 0.0,
-                    early_exit_check_every: 0,
-                    early_exit_visit_frac: 0.6,
-                    early_exit_q_gap: 0.0,
-                };
-
-                let action_idx = mcts_search(
-                    &mut self.sim_game, &self.pathfinder,
-                    snapshot.clone(), step, &params,
-                );
-
-                // Restore state after MCTS (search leaves sim_game in arbitrary state)
-                self.sim_game.load_state(snapshot);
-
-                let action = mcts::ACTIONS[action_idx as usize];
-                let mut terminated = false;
-                for _ in 0..dynamic_ar {
-                    self.sim_game.set_controls(action[0], action[1], action[2]);
-                    self.sim_game.step(1.0 / 60.0);
-                    step += 1;
-                    terminated = self.sim_game.is_terminated();
-                    if terminated || step >= max_steps { break; }
-                }
-
-                if terminated || step >= max_steps {
-                    let completed = self.sim_game.is_level_completed();
-                    let crashed = self.sim_game.is_ship_exploded();
-                    results.push((completed, crashed, step));
-                    break;
-                }
-            }
-        }
-
-        results
-    }
-
-    fn get_pathfinder_info(&self) -> String {
-        let kind = match &self.pathfinder {
-            PathfinderKind::Spatial(_) => "spatial",
-            PathfinderKind::Momentum(_) => "momentum",
-        };
-        format!("{}x{} grid, {} pickups ({})",
-                self.pathfinder.rows(), self.pathfinder.cols(), self.pathfinder.total_pickups(), kind)
-    }
-}
-
+/// Grid pathfinder for level tooling (reachability validation, difficulty
+/// analysis, route visualization). Not used by the solver.
 #[pyclass]
 struct PyPathfinder {
-    kind: PathfinderKind,
+    grid: PathfinderGrid,
 }
 
 #[pymethods]
@@ -677,23 +255,21 @@ impl PyPathfinder {
     #[new]
     #[pyo3(signature = (level, backend = "grid"))]
     fn new(level: usize, backend: &str) -> PyResult<Self> {
+        if backend != "grid" {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                format!("unknown backend: {backend} (only \"grid\" is supported)")
+            ));
+        }
         let mut game = RealSpaceAceGame::new();
         game.load_level(level)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
                 format!("Failed to load level {}: {:?}", level, e)
             ))?;
-        let kind = match backend {
-            "grid" => PathfinderKind::Spatial(PathfinderGrid::build(&game)),
-            "momentum" => PathfinderKind::Momentum(MomentumPathfinder::build(&game)),
-            other => return Err(pyo3::exceptions::PyValueError::new_err(
-                format!("unknown backend: {other}")
-            )),
-        };
-        Ok(PyPathfinder { kind })
+        Ok(PyPathfinder { grid: PathfinderGrid::build(&game) })
     }
 
     /// Construct a pathfinder from a flat JSON array (the format produced by
-    /// generate_maps.py's serialize_map). Always uses the grid backend.
+    /// generate_maps.py's serialize_map).
     #[staticmethod]
     fn from_map_json(map_json: &str) -> PyResult<Self> {
         let map_data = parse_map_json(map_json)
@@ -702,313 +278,160 @@ impl PyPathfinder {
             ))?;
         let mut game = RealSpaceAceGame::new();
         game.load_from_map_data(map_data);
-        let pathfinder = PathfinderGrid::build(&game);
-        Ok(PyPathfinder { kind: PathfinderKind::Spatial(pathfinder) })
+        Ok(PyPathfinder { grid: PathfinderGrid::build(&game) })
     }
 
-    /// Returns the active backend name.
     fn backend(&self) -> &'static str {
-        match &self.kind {
-            PathfinderKind::Spatial(_) => "grid",
-            PathfinderKind::Momentum(_) => "momentum",
-        }
+        "grid"
     }
 
     /// Returns (all_reachable, per_pickup_path_distances).
-    /// Unreachable pickups get f64::INFINITY. Grid backend only.
-    fn validate_reachability(&self, spawn_x: f32, spawn_y: f32) -> PyResult<(bool, Vec<f64>)> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => Ok(pf.validate_reachability(spawn_x, spawn_y)),
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "validate_reachability is only available on the grid backend",
-            )),
-        }
+    /// Unreachable pickups get f64::INFINITY.
+    fn validate_reachability(&self, spawn_x: f32, spawn_y: f32) -> (bool, Vec<f64>) {
+        self.grid.validate_reachability(spawn_x, spawn_y)
     }
 
-    /// Returns (path_distance, dir_x, dir_y) from pathfinder.
-    /// Velocity defaults to zero; grid ignores it, momentum uses it.
+    /// Returns (path_distance, dir_x, dir_y) toward the nearest uncollected pickup.
     #[pyo3(signature = (ship_x, ship_y, collected, ship_vx=0.0, ship_vy=0.0))]
     fn get_nearest_pickup_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>, ship_vx: f32, ship_vy: f32) -> (f64, f64, f64) {
-        self.kind.get_nearest_pickup_info(ship_x, ship_y, ship_vx, ship_vy, &collected)
+        let _ = (ship_vx, ship_vy);
+        self.grid.get_nearest_pickup_info(ship_x, ship_y, &collected)
     }
 
     /// Returns (target_idx, target_x, target_y, path_dist, euclidean_dist, dir_x, dir_y)
     #[pyo3(signature = (ship_x, ship_y, collected, ship_vx=0.0, ship_vy=0.0))]
     fn get_debug_target_info(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>, ship_vx: f32, ship_vy: f32) -> (i32, f32, f32, f64, f64, f64, f64) {
-        self.kind.get_debug_target_info(ship_x, ship_y, ship_vx, ship_vy, &collected)
+        let _ = (ship_vx, ship_vy);
+        self.grid.get_debug_target_info(ship_x, ship_y, &collected)
     }
 
     /// Returns (path_distance, dir_x, dir_y) toward a specific pickup index.
-    /// Only available on the grid backend.
-    fn get_distance_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> PyResult<(f64, f64, f64)> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => Ok(pf.get_distance_to_specific_pickup(ship_x, ship_y, pickup_idx)),
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "get_distance_to_specific_pickup is only available on the grid backend",
-            )),
-        }
+    fn get_distance_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> (f64, f64, f64) {
+        self.grid.get_distance_to_specific_pickup(ship_x, ship_y, pickup_idx)
     }
 
-    /// Returns optimal TSP ordering of uncollected pickups using Held-Karp exact solver.
-    /// Only available on the grid backend.
-    fn get_tsp_order(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> PyResult<Vec<usize>> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => Ok(pf.held_karp_tsp(ship_x, ship_y, &collected)),
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "get_tsp_order is only available on the grid backend",
-            )),
-        }
+    /// Returns optimal TSP ordering of uncollected pickups (Held-Karp).
+    fn get_tsp_order(&self, ship_x: f32, ship_y: f32, collected: Vec<bool>) -> Vec<usize> {
+        self.grid.held_karp_tsp(ship_x, ship_y, &collected)
     }
 
-    /// Returns the full grid path from ship to a specific pickup as list of (x, y) tuples.
-    /// Only available on the grid backend.
-    fn get_path_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> PyResult<Vec<(f32, f32)>> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => Ok(pf.get_path_to_specific_pickup(ship_x, ship_y, pickup_idx)),
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "get_path_to_specific_pickup is only available on the grid backend",
-            )),
-        }
+    /// Returns the full grid path from ship to a specific pickup as (x, y) tuples.
+    fn get_path_to_specific_pickup(&self, ship_x: f32, ship_y: f32, pickup_idx: usize) -> Vec<(f32, f32)> {
+        self.grid.get_path_to_specific_pickup(ship_x, ship_y, pickup_idx)
     }
 
-    /// Returns pickup coordinates as list of (x, y) tuples.
-    /// Only available on the grid backend.
-    fn get_pickup_coords(&self) -> PyResult<Vec<(f32, f32)>> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => Ok(pf.get_pickup_coords().to_vec()),
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "get_pickup_coords is only available on the grid backend",
-            )),
-        }
+    /// Returns pickup coordinates as (x, y) tuples.
+    fn get_pickup_coords(&self) -> Vec<(f32, f32)> {
+        self.grid.get_pickup_coords().to_vec()
     }
 
     /// Analyze level difficulty. Returns a dict of raw metrics.
-    /// `ship_x, ship_y` = spawn position. Only available on grid backend.
     fn analyze_level_difficulty<'py>(&self, py: Python<'py>, ship_x: f32, ship_y: f32,
                                       map_lines: Vec<(f32, f32, f32, f32)>) -> PyResult<Bound<'py, PyDict>> {
-        match &self.kind {
-            PathfinderKind::Spatial(pf) => {
-                let m = pf.analyze_difficulty(ship_x, ship_y, &map_lines);
-                let d = PyDict::new(py);
-                d.set_item("num_walls", m.num_walls)?;
-                d.set_item("wall_density", m.wall_density)?;
-                d.set_item("num_pickups", m.num_pickups)?;
-                d.set_item("pickup_spread", m.pickup_spread)?;
-                d.set_item("total_route_length", m.total_route_length)?;
-                d.set_item("detour_ratio", m.detour_ratio)?;
-                d.set_item("bottleneck_clearance", m.bottleneck_clearance)?;
-                d.set_item("upward_travel", m.upward_travel)?;
-                d.set_item("upward_travel_tight", m.upward_travel_tight)?;
-                d.set_item("maneuver_count", m.maneuver_count)?;
-                d.set_item("worst_maneuver_angle", m.worst_maneuver_angle)?;
-                d.set_item("map_width", m.map_width)?;
-                d.set_item("map_height", m.map_height)?;
-                Ok(d)
-            }
-            PathfinderKind::Momentum(_) => Err(pyo3::exceptions::PyNotImplementedError::new_err(
-                "analyze_level_difficulty is only available on the grid backend",
-            )),
-        }
+        let m = self.grid.analyze_difficulty(ship_x, ship_y, &map_lines);
+        let d = PyDict::new(py);
+        d.set_item("num_walls", m.num_walls)?;
+        d.set_item("wall_density", m.wall_density)?;
+        d.set_item("num_pickups", m.num_pickups)?;
+        d.set_item("pickup_spread", m.pickup_spread)?;
+        d.set_item("total_route_length", m.total_route_length)?;
+        d.set_item("detour_ratio", m.detour_ratio)?;
+        d.set_item("bottleneck_clearance", m.bottleneck_clearance)?;
+        d.set_item("upward_travel", m.upward_travel)?;
+        d.set_item("upward_travel_tight", m.upward_travel_tight)?;
+        d.set_item("maneuver_count", m.maneuver_count)?;
+        d.set_item("worst_maneuver_angle", m.worst_maneuver_angle)?;
+        d.set_item("map_width", m.map_width)?;
+        d.set_item("map_height", m.map_height)?;
+        Ok(d)
     }
 
     fn get_info(&self) -> String {
-        let backend = match &self.kind {
-            PathfinderKind::Spatial(_) => "grid",
-            PathfinderKind::Momentum(_) => "momentum",
-        };
-        format!("{}x{} {} pathfinder, {} pickups",
-                self.kind.rows(), self.kind.cols(), backend, self.kind.total_pickups())
+        format!("{}x{} grid pathfinder, {} pickups",
+                self.grid.rows(), self.grid.cols(), self.grid.total_pickups)
     }
 }
 
-#[cfg(feature = "alphazero")]
-fn normalize_heuristic(heuristic: f64) -> f32 {
-    // tanh gives strong gradient near 0 (crash avoidance) while saturating smoothly for high values.
-    // heuristic=-100 (crash) -> -0.46, 0 (neutral) -> 0.0, 200 (1 pickup) -> 0.76
-    (heuristic / 200.0).tanh() as f32
-}
-
-#[cfg(feature = "alphazero")]
+/// Offline time-optimal planner (see src/solver.rs). This is the AI:
+/// `solve` finds a completing action tape via parallel beam search, `refine`
+/// improves it inside a corridor around the incumbent, `polish` shortens it
+/// with exact local search, `resolve_suffix` re-plans tails. All returned
+/// tapes replay tick-exactly on PyGameInstance.
 #[pyclass]
-struct PyAlphaZeroEngine {
-    sim_game: RealSpaceAceGame,
-    pathfinder: PathfinderKind,
-    nn: Option<NNEvaluator>,
-    max_steps: u32,
+struct PySolver {
+    inner: AceSolver,
 }
 
-#[cfg(feature = "alphazero")]
 #[pymethods]
-impl PyAlphaZeroEngine {
+impl PySolver {
     #[new]
-    #[pyo3(signature = (level, max_steps, model_path=None))]
-    fn new(level: usize, max_steps: u32, model_path: Option<String>) -> PyResult<Self> {
-        let mut sim_game = RealSpaceAceGame::new();
-        sim_game.load_level(level)
+    fn new(level: usize) -> PyResult<Self> {
+        let inner = AceSolver::from_level(level)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(
                 format!("Failed to load level {}: {:?}", level, e)
             ))?;
-        let pathfinder = PathfinderKind::Spatial(PathfinderGrid::build(&sim_game));
-        let nn = match model_path {
-            Some(path) => Some(NNEvaluator::load(&path).map_err(|e|
-                pyo3::exceptions::PyRuntimeError::new_err(
-                    format!("Failed to load ONNX model {}: {:?}", path, e)
-                )
-            )?),
-            None => None,
-        };
-        Ok(PyAlphaZeroEngine { sim_game, pathfinder, nn, max_steps })
+        Ok(PySolver { inner })
     }
 
-    /// Run AlphaZero MCTS search.
-    /// Returns (best_action, policy_target[6], root_value).
-    #[pyo3(signature = (state, num_simulations, c_puct=1.5, temperature=1.0, action_repeat=5, dirichlet_alpha=0.3, dirichlet_epsilon=0.25))]
-    fn search(&mut self, state: &PyGameState, num_simulations: u32,
-              c_puct: f64, temperature: f64, action_repeat: u32,
-              dirichlet_alpha: f64, dirichlet_epsilon: f64)
-        -> (u8, Vec<f32>, f32)
-    {
-        let params = AlphaZeroParams {
-            num_simulations, action_repeat, c_puct,
-            max_steps: self.max_steps, temperature,
-            dirichlet_alpha, dirichlet_epsilon,
-        };
-        let (action, policy, value, _obs) = alphazero_search(
-            &mut self.sim_game,
-            &self.pathfinder,
-            &mut self.nn,
-            state.snapshot.clone(),
-            state.step_count,
-            &params,
-        );
-        (action, policy.to_vec(), value)
+    fn n_pickups(&self) -> usize {
+        self.inner.n_pickups()
     }
 
-    /// Load or replace the neural network model.
-    fn load_model(&mut self, model_path: String) -> PyResult<()> {
-        self.nn = Some(NNEvaluator::load(&model_path).map_err(|e|
-            pyo3::exceptions::PyRuntimeError::new_err(
-                format!("Failed to load ONNX model {}: {:?}", model_path, e)
-            )
-        )?);
-        Ok(())
+    /// Beam-search a completing tape from spawn. Returns None if the beam
+    /// dies or max_ticks is exhausted.
+    #[pyo3(signature = (width=50_000, max_ticks=4000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, jitter=3.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn solve(&self, py: Python<'_>, width: usize, max_ticks: u32, seed: u64,
+             quant_pos: f32, quant_vel: f32, rot_bins: u32,
+             lookahead: f32, mix: f32, proj_div: f32, jitter: f32) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, jitter };
+        py.allow_threads(|| self.inner.solve(&p))
     }
 
-    /// Seed AlphaZero's root Dirichlet/action sampling RNG for this thread.
-    fn set_rng_seed(&mut self, seed: u32) {
-        set_alphazero_rng_seed(seed);
+    /// Exact replay. Returns (completed, crashed, ticks).
+    fn replay(&self, py: Python<'_>, tape: Vec<u8>) -> (bool, bool, u32) {
+        py.allow_threads(|| self.inner.replay(&tape))
     }
 
-    /// Build the 27-dim observation for a given state (for training data collection).
-    fn get_observation(&mut self, state: &PyGameState) -> Vec<f32> {
-        self.sim_game.load_state(state.snapshot.clone());
-        build_alphazero_obs(&self.sim_game, &self.pathfinder, state.step_count, self.max_steps)
+    /// Heuristic probe: remaining-route lower bound (px) at a position.
+    fn h_at(&self, x: f32, y: f32, mask: u32) -> i64 {
+        self.inner.h_at(x, y, mask)
     }
 
-    /// Evaluate a game state using the heuristic function.
-    /// Returns value normalized to [-1, 1] for use as value target in training.
-    fn evaluate_heuristic(&mut self, state: &PyGameState) -> f32 {
-        self.sim_game.load_state(state.snapshot.clone());
-        let heuristic = mcts::evaluate_state_pub(&self.sim_game, &self.pathfinder);
-        normalize_heuristic(heuristic)
+    /// Trace of (tick, x, y, h) along a tape, sampled every `stride` ticks.
+    fn trace(&self, tape: Vec<u8>, stride: usize) -> Vec<(u32, f32, f32, i64)> {
+        self.inner.trace(&tape, stride)
     }
 
-    /// Play multiple self-play games entirely in Rust.
-    /// Returns (observations_flat, policies_flat, values, stats_list).
-    /// observations_flat is a flat Vec<f32> of obs_dim * N examples.
-    /// policies_flat is a flat Vec<f32> of 6 * N examples.
-    /// values is Vec<f32> of N examples.
-    /// stats_list is a list of (total_reward, pickups_collected, completed, crashed, steps).
-    #[pyo3(signature = (num_games, num_simulations, c_puct=1.5, action_repeat=5, temp_threshold=30, max_steps=3000, dirichlet_alpha=0.3, dirichlet_epsilon=0.25, temperature_after_threshold=0.1))]
-    fn play_games(&mut self, num_games: u32, num_simulations: u32,
-                  c_puct: f64, action_repeat: u32, temp_threshold: u32, max_steps: u32,
-                  dirichlet_alpha: f64, dirichlet_epsilon: f64, temperature_after_threshold: f64)
-        -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<(f64, i32, bool, bool, u32)>)
-    {
-        let mut all_obs: Vec<f32> = Vec::new();
-        let mut all_policies: Vec<f32> = Vec::new();
-        let mut all_values: Vec<f32> = Vec::new();
-        let mut all_stats: Vec<(f64, i32, bool, bool, u32)> = Vec::new();
-
-        for _ in 0..num_games {
-            self.sim_game.reset();
-            let mut step: u32 = 0;
-            let mut total_reward: f64 = 0.0;
-            let mut pickups_collected: i32 = 0;
-
-            // Per-game example buffers (obs/policy/value per decision step)
-            let mut game_obs: Vec<f32> = Vec::new();
-            let mut game_policies: Vec<f32> = Vec::new();
-            let mut game_values: Vec<f32> = Vec::new();
-
-            loop {
-                let snapshot = self.sim_game.save_state();
-                let temperature = if step < temp_threshold { 1.0 } else { temperature_after_threshold };
-
-                let params = AlphaZeroParams {
-                    num_simulations, action_repeat, c_puct,
-                    max_steps, temperature,
-                    dirichlet_alpha, dirichlet_epsilon,
-                };
-
-                let (action_idx, policy, _value, obs) = alphazero_search(
-                    &mut self.sim_game,
-                    &self.pathfinder,
-                    &mut self.nn,
-                    snapshot,
-                    step,
-                    &params,
-                );
-
-                // Store observation and policy
-                game_obs.extend_from_slice(&obs);
-                game_policies.extend_from_slice(&policy);
-
-                // Execute action with action_repeat
-                let action = alphazero_mcts::ACTIONS[action_idx as usize];
-                let mut terminated = false;
-                for _ in 0..action_repeat {
-                    self.sim_game.set_controls(action[0], action[1], action[2]);
-                    self.sim_game.step(1.0 / 60.0);
-                    step += 1;
-
-                    // Accumulate reward
-                    total_reward += calculate_reward(&self.sim_game) as f64;
-                    pickups_collected += self.sim_game.get_pickups_collected_this_step();
-
-                    terminated = self.sim_game.is_terminated();
-                    if terminated || step >= max_steps { break; }
-                }
-
-                let step_value = if self.sim_game.is_level_completed() {
-                    1.0
-                } else if self.sim_game.is_ship_exploded() {
-                    -1.0
-                } else {
-                    let h = mcts::evaluate_state_pub(&self.sim_game, &self.pathfinder);
-                    normalize_heuristic(h)
-                };
-                game_values.push(step_value);
-
-                if terminated || step >= max_steps {
-                    let completed = self.sim_game.is_level_completed();
-                    let crashed = self.sim_game.is_ship_exploded();
-
-                    all_obs.extend_from_slice(&game_obs);
-                    all_policies.extend_from_slice(&game_policies);
-                    all_values.extend_from_slice(&game_values);
-                    all_stats.push((total_reward, pickups_collected, completed, crashed, step));
-                    break;
-                }
-            }
-        }
-
-        (all_obs, all_policies, all_values, all_stats)
+    /// Local-search polish: `chains` parallel chains of `iters` mutations
+    /// each; returns (best_tape, best_ticks).
+    #[pyo3(signature = (tape, iters=300_000, chains=8, seed=1, accept_equal=0.12))]
+    fn polish(&self, py: Python<'_>, tape: Vec<u8>, iters: u64, chains: usize,
+              seed: u64, accept_equal: f64) -> (Vec<u8>, u32) {
+        py.allow_threads(|| self.inner.polish(&tape, iters, chains, seed, accept_equal))
     }
 
-    fn get_pathfinder_info(&self) -> String {
-        format!("{}x{} grid, {} pickups (alphazero)",
-                self.pathfinder.rows(), self.pathfinder.cols(), self.pathfinder.total_pickups())
+    /// Corridor refinement: re-search inside a `radius`-px tube around the
+    /// reference tape with (typically finer) quantization. Returns a strictly
+    /// shorter tape or None.
+    #[pyo3(signature = (tape, radius=150.0, width=100_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, lookahead=1.0, mix=1.0, proj_div=400.0, jitter=3.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn refine(&self, py: Python<'_>, tape: Vec<u8>, radius: f32, width: usize,
+              seed: u64, quant_pos: f32, quant_vel: f32, rot_bins: u32,
+              lookahead: f32, mix: f32, proj_div: f32, jitter: f32) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, jitter };
+        py.allow_threads(|| self.inner.refine(&tape, radius, &p))
+    }
+
+    /// Re-plan the suffix from `from_tick`; returns a strictly shorter full
+    /// tape or None.
+    #[pyo3(signature = (tape, from_tick, width=50_000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, jitter=3.0))]
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_suffix(&self, py: Python<'_>, tape: Vec<u8>, from_tick: usize,
+                      width: usize, seed: u64, quant_pos: f32, quant_vel: f32,
+                      rot_bins: u32, lookahead: f32, mix: f32, proj_div: f32, jitter: f32) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, jitter };
+        py.allow_threads(|| self.inner.resolve_suffix(&tape, from_tick, &p))
     }
 }
 
@@ -1016,35 +439,7 @@ impl PyAlphaZeroEngine {
 fn spaceace_rl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameInstance>()?;
     m.add_class::<PyGameState>()?;
-    m.add_class::<PyMCTSEngine>()?;
-    m.add_class::<PyMCTSTreeCheckpoint>()?;
     m.add_class::<PyPathfinder>()?;
-    m.add_class::<PyAlphaZeroEngine>()?;
-    m.add_function(pyo3::wrap_pyfunction!(py_set_rng_seed, m)?)?;
+    m.add_class::<PySolver>()?;
     Ok(())
-}
-
-#[cfg(not(feature = "alphazero"))]
-#[pyclass]
-struct PyAlphaZeroEngine;
-
-#[cfg(not(feature = "alphazero"))]
-#[pymethods]
-impl PyAlphaZeroEngine {
-    #[new]
-    fn new() -> PyResult<Self> {
-        Err(pyo3::exceptions::PyRuntimeError::new_err(
-            "PyAlphaZeroEngine is unavailable: spaceace-rl was built without the \
-             `alphazero` feature. Rebuild with `--features alphazero` to enable \
-             ONNX-based AlphaZero inference.",
-        ))
-    }
-}
-
-/// Seed the MCTS RNG on the current thread. Useful for reproducible runs;
-/// omit to let the RNG stay time-seeded (different every process).
-#[pyfunction]
-#[pyo3(name = "set_rng_seed")]
-fn py_set_rng_seed(seed: u32) {
-    set_rng_seed(seed);
 }

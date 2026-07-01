@@ -178,60 +178,6 @@ def plot_raycasts(level, ship, pickups, geo, out_dir, sample_positions=None):
     print(f"  wrote {out}")
 
 
-def plot_observation_vector(level, out_dir):
-    """Use the actual PathAugmentedObs23 strategy to produce the 40-dim obs
-    the PPO agent receives, and bar-plot it with labels."""
-    from spaceace.strategies.observation import PathAugmentedObs23
-    from spaceace.strategies.pathfinder import RustPathfinder
-    from spaceace.core.gym_wrapper import SpaceAceGymWrapper
-
-    env = SpaceAceGymWrapper(level=level, max_steps=3000)
-    raw_obs, info = env.reset()
-    pf = RustPathfinder(level)
-    obs_builder = PathAugmentedObs23(pf, 3000)
-    vec = obs_builder.reset(raw_obs, info, env)
-
-    LABELS = [
-        "vx/300", "vy/300", "sin(rot)", "cos(rot)", "pickup_d/1000",
-        "wall0/1k", "wall1/1k", "wall2/1k", "wall3/1k",
-        "wall4/1k", "wall5/1k", "wall6/1k", "wall7/1k",
-        "pickups_rem/10", "norm_x", "norm_y",
-        "pf_dist/5k", "pf_dir_x", "pf_dir_y",
-        "speed", "speed_toward", "heading_align", "min_tti/2", "time_remaining",
-    ] + [f"fine_ray{i}" for i in range(16)]
-
-    assert len(LABELS) == 40, f"label count drift: {len(LABELS)}"
-
-    fig, ax = plt.subplots(figsize=(14, 6), facecolor="#000")
-    colors = ["#ff9500"] * 5 + ["#8e8e93"] * 8 + ["#00ffff"] * 3 + ["#34c759"] * 8 + ["#ffcc00"] * 16
-    ax.bar(range(40), vec, color=colors)
-    ax.set_xticks(range(40))
-    ax.set_xticklabels(LABELS, rotation=75, ha="right", fontsize=7, color="white")
-    ax.tick_params(colors="white")
-    ax.spines[:].set_color("white")
-    ax.set_facecolor("#1c1c1e")
-    ax.set_title(f"L{level} — PathAugmentedObs23 (40-dim) at ship start",
-                 color="white", fontsize=11)
-    ax.axhline(0, color="white", lw=0.5, alpha=0.3)
-
-    # Annotate each bar with its value
-    for i, v in enumerate(vec):
-        ax.text(i, v + (0.02 if v >= 0 else -0.04), f"{v:.2f}",
-                ha="center", color="white", fontsize=6,
-                rotation=90 if abs(v) < 0.2 else 0)
-
-    out = out_dir / f"{level}_04_obs_vector.png"
-    plt.savefig(out, dpi=120, bbox_inches="tight", facecolor="#000")
-    plt.close(fig)
-    print(f"  wrote {out}")
-
-    # Also print summary to stdout
-    print()
-    print(f"  PathAugmentedObs23 @ start (40 dims):")
-    for i, (label, v) in enumerate(zip(LABELS, vec)):
-        print(f"    [{i:2d}] {label:<18s} = {v:+.4f}")
-
-
 def plot_reachability_grid(level, ship, pickups, geo, out_dir):
     """Approximate the pathfinder's reachable-cell mask by querying paths
     densely and marking which points have a finite distance.
@@ -287,7 +233,6 @@ def main():
     print("[3/5] raycasts at ship start")
     plot_raycasts(args.level, ship, pickups, geo, out_dir)
     print("[4/5] 40-dim observation vector (PathAugmentedObs23)")
-    plot_observation_vector(args.level, out_dir)
     print("[5/5] reachability union")
     plot_reachability_grid(args.level, ship, pickups, geo, out_dir)
 

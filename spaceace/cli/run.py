@@ -88,121 +88,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--agent-module", type=str, default=None,
                    help="Dotted path to a module that registers a custom agent")
     p.add_argument("--level", type=int, default=0)
-    p.add_argument("--model", type=str, default=None)
     p.add_argument("--episodes", type=int, default=5)
     p.add_argument("--fps", type=int, default=60)
     p.add_argument("--max-steps", type=int, default=3000)
     p.add_argument("--headless", action="store_true")
-    p.add_argument("--num-simulations", type=int, default=200)
-    p.add_argument("--exploration", type=float, default=1.41)
-    p.add_argument("--momentum-pathfinder", action="store_true")
-    p.add_argument("--beam-width", type=int, default=1000,
-                   help="Beam width for beam search agent (default 1000)")
-    p.add_argument("--step-penalty", type=float, default=0.01,
-                   help="Step penalty for beam search scoring (default 0.01)")
-    p.add_argument("--no-optimize", action="store_true",
-                   help="Skip trajectory optimization phase for beam search")
-    p.add_argument("--action-repeat", type=int, default=3,
-                   help="Action repeat frames for beam/MCTS (default 3)")
-    p.add_argument("--ar-depth-bonus", type=int, default=0,
-                   help="MCTS: additional action_repeat frames per tree depth level. "
-                   "0 (default) = constant, 1-2 = longer horizon deep in tree.")
-    p.add_argument("--ar-max", type=int, default=20,
-                   help="MCTS: cap on depth-scaled action_repeat (default 20)")
-    p.add_argument("--thrust-bias", type=float, default=0.0,
-                   help="MCTS: additive UCT bonus for thrust-on actions (1,3,5). "
-                   "Biases the tree toward keeping thrust on. Typical: 0.2-0.6.")
-    p.add_argument("--thrust-bias-safe-dist", type=float, default=0.0,
-                   help="MCTS: nearest-wall distance (px) at which --thrust-bias reaches "
-                   "full strength. Below this, bias fades linearly to 0. 0 (default) "
-                   "disables scaling — constant bias everywhere, including tight corners. "
-                   "Set >0 only if the agent is thrusting into walls.")
-    p.add_argument("--ee-check-every", type=int, default=500,
-                   help="MCTS adaptive early-exit: check root visit distribution every N "
-                   "sims; stop early when the best action dominates. Default 500 "
-                   "(on). Set to 0 to disable.")
-    p.add_argument("--ee-visit-frac", type=float, default=0.7,
-                   help="Minimum root visit fraction of the best action to trigger "
-                   "early-exit (default 0.7).")
-    p.add_argument("--ee-q-gap", type=float, default=10.0,
-                   help="Minimum mean-value gap between best and runner-up to trigger "
-                   "early-exit (default 10.0).")
-    p.add_argument("--widen-k", type=float, default=0.0,
-                   help="MCTS progressive widening coefficient. 0 (default) = disabled. "
-                   "Typical: 1.0-1.5. Shrinks effective branching factor at shallow-visit "
-                   "nodes so promising lines grow deeper for the same sim budget.")
-    # A* planner options
-    p.add_argument("--astar-action-repeat", type=int, default=10,
-                   help="Nominal frames per A* motion primitive (default 10)")
-    p.add_argument("--astar-pos-bucket", type=float, default=16.0,
-                   help="Position bucket size (px) for A* state canonicalization (default 16)")
-    p.add_argument("--astar-vel-bucket", type=float, default=16.0,
-                   help="Velocity bucket size (px/s) for A* (default 16)")
-    p.add_argument("--astar-rot-bucket-deg", type=float, default=15.0,
-                   help="Rotation bucket size (degrees) for A* (default 15)")
-    p.add_argument("--astar-max-expansions", "--astar-leg-max-expansions",
-                   dest="astar_max_expansions", type=int, default=200_000,
-                   help="Expansion cap for A* whole-level search (default 200000)")
-    p.add_argument("--astar-time-limit", "--astar-leg-time-limit",
-                   dest="astar_time_limit", type=float, default=60.0,
-                   help="Wall-clock time limit for A* whole-level search, seconds (default 60)")
-    p.add_argument("--astar-heuristic-weight", type=float, default=2.0,
-                   help="A* heuristic multiplier. 1.0=admissible, >1.0=weighted (default 2.0)")
-    p.add_argument("--astar-fallback", choices=("mcts", "none"), default="mcts",
-                   help="Policy to use if offline A* finds no complete plan (default mcts)")
-    p.add_argument("--astar-fallback-simulations", type=int, default=500,
-                   help="MCTS simulations per decision for A* fallback (default 500)")
-    p.add_argument("--astar-fallback-action-repeat", type=int, default=5,
-                   help="Base action repeat for A* MCTS fallback (default 5)")
-    # Kinodynamic (phase-space reference + cascaded PD) options
-    p.add_argument("--kinodyn-ds", type=float, default=6.0,
-                   help="Arc-length spacing of the resampled trajectory, px (default 6)")
-    p.add_argument("--kinodyn-smooth-sigma", type=float, default=3.0,
-                   help="Gaussian smoothing sigma, in samples (default 3 -> ~18 px)")
-    p.add_argument("--kinodyn-a-lat", type=float, default=220.0,
-                   help="Max lateral (centripetal) accel for cornering speed cap, px/s^2 (default 220)")
-    p.add_argument("--kinodyn-v-cap", type=float, default=500.0,
-                   help="Absolute speed cap applied by the velocity profile, px/s (default 500)")
-    p.add_argument("--kinodyn-v-final", type=float, default=180.0,
-                   help="Target speed at the final pickup, px/s (default 180)")
-    p.add_argument("--kinodyn-kp-pos", type=float, default=6.0,
-                   help="Position-feedback proportional gain, 1/s^2 (default 6.0)")
-    p.add_argument("--kinodyn-kd-vel", type=float, default=3.2,
-                   help="Velocity-feedback proportional gain, 1/s (default 3.2)")
-    p.add_argument("--kinodyn-rot-tol-deg", type=float, default=18.0,
-                   help="Heading-error tolerance before the tracker fires thrust, deg (default 18)")
-    p.add_argument("--kinodyn-thrust-deadband", type=float, default=40.0,
-                   help="Don't command thrust below this commanded accel magnitude, px/s^2 (default 40)")
-    p.add_argument("--kinodyn-lookahead-samples", type=int, default=4,
-                   help="Controller lookahead in resampled samples (default 4 -> ~24 px)")
-    p.add_argument("--kinodyn-tick-budget", type=int, default=6000,
-                   help="Max physics ticks to simulate per candidate ordering (default 6000 = 100s)")
-    p.add_argument("--kinodyn-max-idle", type=int, default=600,
-                   help="Abort if no pickup progress for this many ticks (default 600)")
-    p.add_argument("--kinodyn-no-enumerate", dest="kinodyn_enumerate", action="store_false",
-                   default=True,
-                   help="Skip exhaustive ordering enumeration for small pickup sets")
-    p.add_argument("--kinodyn-enumerate-threshold", type=int, default=5,
-                   help="Max pickups for which to exhaustively enumerate orderings (default 5)")
     # TAS replay options
     p.add_argument("--tas-path", type=str, default=None,
                    help="Exact action trace JSON to replay with --agent tas. "
                    "Default: ghost_actions/L<level>_<tas-label>.json.")
-    p.add_argument("--tas-label", type=str, default="ai",
-                   help="Ghost action sidecar label for --agent tas (default: ai)")
+    p.add_argument("--tas-label", type=str, default="tas",
+                   help="Ghost action sidecar label for --agent tas (default: tas)")
     p.add_argument("--tas-validate", action="store_true",
                    help="Replay the TAS trace once during setup and fail if it does not complete.")
-    # mcts_rewind agent options
-    p.add_argument("--rewind-budget", type=int, default=8,
-                   help="mcts_rewind: max rewinds per episode (default 8)")
-    p.add_argument("--rewind-history", type=int, default=40,
-                   help="mcts_rewind: how many prior checkpoints to keep (default 40)")
-    p.add_argument("--rewind-stuck", type=int, default=180,
-                   help="mcts_rewind: frames without pickup progress before rewind fires (default 180)")
-    p.add_argument("--rewind-regret", type=float, default=0.35,
-                   help="mcts_rewind: value drop vs baseline that triggers rewind (default 0.35)")
-    p.add_argument("--rewind-num-simulations", type=int, default=0,
-                   help="mcts_rewind: sims on rewind search. 0 (default) = use --num-simulations")
+    # Ace agent options
+    p.add_argument("--ace-width", type=int, default=40_000,
+                   help="Beam width when --agent ace has to plan from scratch (default 40000)")
     p.add_argument("--save-ghost", dest="save_ghost", action="store_true", default=True,
                    help="On completed episodes, save the run as a ghost in the dashboard "
                    "DB if it's faster than the existing ghost for this level. "
@@ -233,58 +133,11 @@ def main() -> None:
     agent = AGENT_REGISTRY[args.agent]()
 
     kwargs = {
-        "num_simulations": args.num_simulations,
-        "exploration_constant": args.exploration,
-        "momentum_pathfinder": args.momentum_pathfinder,
-        "beam_width": args.beam_width,
-        "step_penalty": args.step_penalty,
-        "action_repeat": args.action_repeat,
-        "action_repeat_depth_bonus": args.ar_depth_bonus,
-        "action_repeat_max": args.ar_max,
-        "widen_k": args.widen_k,
-        "early_exit_check_every": args.ee_check_every,
-        "early_exit_visit_frac": args.ee_visit_frac,
-        "early_exit_q_gap": args.ee_q_gap,
-        "thrust_bias": args.thrust_bias,
-        "thrust_bias_safe_dist": args.thrust_bias_safe_dist,
-        "optimize": not args.no_optimize,
-        "astar_action_repeat": args.astar_action_repeat,
-        "astar_pos_bucket": args.astar_pos_bucket,
-        "astar_vel_bucket": args.astar_vel_bucket,
-        "astar_rot_bucket_deg": args.astar_rot_bucket_deg,
-        "astar_max_expansions": args.astar_max_expansions,
-        "astar_time_limit_s": args.astar_time_limit,
-        "astar_heuristic_weight": args.astar_heuristic_weight,
-        "astar_fallback": args.astar_fallback,
-        "astar_fallback_simulations": args.astar_fallback_simulations,
-        "astar_fallback_action_repeat": args.astar_fallback_action_repeat,
-        "kinodyn_ds": args.kinodyn_ds,
-        "kinodyn_smooth_sigma": args.kinodyn_smooth_sigma,
-        "kinodyn_a_lat": args.kinodyn_a_lat,
-        "kinodyn_v_cap": args.kinodyn_v_cap,
-        "kinodyn_v_final": args.kinodyn_v_final,
-        "kinodyn_kp_pos": args.kinodyn_kp_pos,
-        "kinodyn_kd_vel": args.kinodyn_kd_vel,
-        "kinodyn_rot_tol_deg": args.kinodyn_rot_tol_deg,
-        "kinodyn_thrust_deadband": args.kinodyn_thrust_deadband,
-        "kinodyn_lookahead_samples": args.kinodyn_lookahead_samples,
-        "kinodyn_tick_budget": args.kinodyn_tick_budget,
-        "kinodyn_max_idle": args.kinodyn_max_idle,
-        "kinodyn_enumerate_orders": args.kinodyn_enumerate,
-        "kinodyn_enumerate_threshold": args.kinodyn_enumerate_threshold,
         "tas_path": args.tas_path,
         "tas_label": args.tas_label,
         "tas_validate": args.tas_validate,
-        "rewind_budget": args.rewind_budget,
-        "rewind_history": args.rewind_history,
-        "rewind_stuck": args.rewind_stuck,
-        "rewind_regret": args.rewind_regret,
-        "rewind_num_simulations": (
-            args.rewind_num_simulations if args.rewind_num_simulations > 0 else args.num_simulations
-        ),
+        "ace_width": args.ace_width,
     }
-    if args.model:
-        kwargs["model_path"] = args.model
 
     agent.setup(level=args.level, max_steps=args.max_steps, **kwargs)
 
@@ -335,15 +188,9 @@ def main() -> None:
                     raw_obs = raw_env.get_observation()
                     game_state, pickups, map_bounds = extract_game_info(raw_obs, info, raw_env)
                     game_state["level"] = args.level
-                    debug_path = None
-                    mcts_debug = None
-                    if hasattr(agent, "_mcts"):
-                        state = raw_env.save_state()
-                        debug_path = agent._mcts.get_debug_path(state)
-                    if hasattr(agent, "debug_info") and agent.debug_info:
-                        mcts_debug = agent.debug_info
+                    debug_info = getattr(agent, "debug_info", None) or None
                     if not renderer.render_frame(
-                        game_state, info, total_reward, action, pickups, map_bounds, debug_path, mcts_debug
+                        game_state, info, total_reward, action, pickups, map_bounds, None, debug_info
                     ):
                         return
                     renderer.wait_for_fps(args.fps)

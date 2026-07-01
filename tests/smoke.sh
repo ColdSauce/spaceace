@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Smoke test: runs every supported agent on level 0 headless for one short episode.
-# Run after each re-architecture phase to confirm nothing regressed.
-# Expected total runtime: ~60s.
+# Smoke test: engine, solver, and agents. Exercises level 7 (the real
+# workload), not just level 0.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -11,7 +10,7 @@ red()   { printf '\033[0;31m%s\033[0m\n' "$*"; }
 
 run() {
     local label="$1"; shift
-    printf '  %-40s ' "$label"
+    printf '  %-44s ' "$label"
     if out=$("$@" 2>&1); then
         green "OK"
     else
@@ -23,25 +22,23 @@ run() {
 
 echo "=== SpaceAce smoke tests ==="
 
-run "random level 0" \
-    uv run python run.py --agent random --level 0 --headless --episodes 2 --max-steps 200
+run "random agent, level 0" \
+    uv run python run.py --agent random --level 0 --headless --episodes 2 --max-steps 200 --no-save-ghost
 
-run "mcts grid level 0" \
-    uv run python run.py --agent mcts --level 0 --headless --episodes 1 --num-simulations 100 --max-steps 500
+run "ace tape replays exactly on level 7" \
+    uv run python scripts/smoke_replay.py
 
-run "mcts momentum level 0" \
-    uv run python run.py --agent mcts --level 0 --headless --episodes 1 --num-simulations 100 --max-steps 500 --momentum-pathfinder
+run "solver beam finds a completing tape (level 7)" \
+    uv run python scripts/smoke_solve.py
 
-run "alphazero level 0" \
-    uv run python run.py --agent alphazero --level 0 --headless --episodes 1 --num-simulations 50 --max-steps 500
+run "tas agent replays sidecar, level 7" \
+    uv run python run.py --agent tas --level 7 --headless --episodes 1 \
+        --max-steps 4000 --tas-label tas --tas-validate --no-save-ghost
 
-# PPO checkpoints on disk are pre-broken: saved VecNormalize has obs shape
-# that doesn't match current training_env. Not caused by the refactor.
-# Uncomment once a fresh checkpoint is trained under the new strategies/ layout.
-echo "  ppo level 0                              SKIP (pre-broken checkpoint)"
+run "ace agent, level 7" \
+    uv run python run.py --agent ace --level 7 --headless --episodes 1 \
+        --max-steps 4000 --no-save-ghost
 
-# --- Trainer imports (no training, just verify the registry loads) ---
-run "trainer registry loads" \
-    uv run python -c "from spaceace.training import TRAINER_REGISTRY; assert 'alphazero' in TRAINER_REGISTRY; assert 'hrl' in TRAINER_REGISTRY; print('Registry:', sorted(TRAINER_REGISTRY.keys()))"
+run "unit tests" uv run pytest tests/ -q
 
 green "=== all smoke tests passed ==="

@@ -1,6 +1,8 @@
-# SpaceAce RL
+# SpaceAce
 
-Rust game engine + Python RL pipeline for the SpaceAce arcade game. Multiple agents (MCTS, PPO, AlphaZero, HRL) share composable strategies for pathfinding, observations, rewards, and actions via a plugin registry.
+Rust engine + offline planner ("Ace") for the SpaceAce arcade game. The AI
+finds tick-perfect action tapes that complete each level faster than the best
+human times, and the game/dashboard replays them as ghosts.
 
 ## Setup
 
@@ -15,78 +17,70 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --reinstall-package spaceace-rl
 ```
 
-**Important:** Do not use `maturin develop` — it conflicts with uv's environment. Always rebuild with `uv sync --reinstall-package spaceace-rl`.
+**Important:** Do not use `maturin develop` — it conflicts with uv's
+environment. Always rebuild with `uv sync --reinstall-package spaceace-rl`.
 
 ## Usage
 
 ```bash
-# Run MCTS agent with visualization
-uv run python run.py --agent mcts --level 0 --num-simulations 5000
+# Solve a level (beam search + refinement; saves ghost + sidecar if faster)
+uv run python scripts/solve.py --level 7 --budget-min 20
 
-# Run headless
-uv run python run.py --agent random --level 0 --headless --episodes 10
-
-# Train PPO
-uv run python train.py --level 0
+# Watch the solved run
+uv run python run.py --agent ace --level 7
 
 # Play with keyboard
-uv run python play.py --level 0
-```
+uv run python play.py --level 7
 
-### CLI options
-
-| Flag | Description |
-|------|-------------|
-| `--agent {random,human,mcts,ppo,alphazero,hrl}` | Agent type |
-| `--level N` | Game level (0-7) |
-| `--episodes N` | Number of episodes |
-| `--headless` | Disable pygame window |
-| `--num-simulations N` | MCTS/AlphaZero sims per decision |
-| `--momentum-pathfinder` | Use momentum pathfinder backend |
-| `--max-steps N` | Max steps per episode |
-| `--model PATH` | Model checkpoint for PPO |
-
-## Architecture
-
-```
-spaceace/
-  core/           # SpaceAceDirectEnv (Rust wrapper), GymWrapper, pygame renderer
-  strategies/     # Composable building blocks: Pathfinder, ObservationBuilder,
-                  #   RewardShaper, ActionSpace + STRATEGY_REGISTRY
-  agents/         # Agent implementations + AGENT_REGISTRY
-    random_agent.py, human.py
-    mcts/         # Rust MCTS with heuristic evaluation
-    ppo/          # SB3 PPO inference + training env
-    alphazero/    # Rust PUCT MCTS + neural net
-    hrl/          # Hierarchical: TSP planner + pilot DQN
-  training/       # Trainer ABC, Sb3Trainer, callbacks, vec-env factories
-                  #   + TRAINER_REGISTRY
-
-src/              # Rust engine (PyO3 bindings)
-  lib.rs          # PyGameInstance, PyMCTSEngine, PyAlphaZeroEngine, PyPathfinder
-  real_game.rs    # Game state + physics stepping
-  real_physics.rs # Ship physics (thrust, rotation, gravity)
-  real_collision.rs  # Line-segment collision detection
-  real_map_parser.rs # Level JSON parsing
-  mcts.rs         # MCTS tree search with heuristic leaf eval
-  pathfinder/     # BFS grid + momentum pathfinder backends
-```
-
-### Key design decisions
-
-- **Strategy pattern**: Agents consume reusable `Pathfinder`, `ObservationBuilder`, `RewardShaper`, and `ActionSpace` objects. New strategies register in `STRATEGY_REGISTRY` and are available to all agents/trainers.
-- **Plugin registries**: `AGENT_REGISTRY`, `TRAINER_REGISTRY`, `STRATEGY_REGISTRY` with `@register_agent` / `@register_trainer` decorators.
-- **Rust performance**: Game physics, MCTS, pathfinding, and collision detection run in Rust via PyO3. No serialization overhead (opaque `GameSnapshot` for state save/load).
-- **Action space**: 6 discrete macro-actions over `[rot_left, rot_right, thrust]` with configurable `action_repeat`.
-
-## Tests
-
-```bash
-# Smoke tests (all agents, ~60s)
+# Smoke tests
 bash tests/smoke.sh
+```
 
-# Unit tests
-uv run pytest tests/ -v
+## How the AI works
+
+Everything lives in `src/solver.rs` (one file) and is orchestrated by
+`scripts/solve.py`:
+
+1. **Exact simulation** — a compact, allocation-free copy of the game step
+   that matches the engine float-for-float, so a planned tape replays
+   identically in the real game (validated on `PyGameInstance` before
+   saving). ~6M steps/s per core.
+2. **Global beam search** — tick-synchronized beam over the full state
+   (position, velocity, rotation, pickup set), ranked by per-pickup Dijkstra
+   distance fields plus an exact DP over remaining-pickup subsets (optimal
+   route lower bound). A physical "can it still brake?" doom model prunes
+   ballistically dead states; per-pickup-set stratification keeps alternate
+   routes alive.
+3. **Anytime refinement** — warm-started corridor re-search around the best
+   tape at finer quantization (guaranteed never worse), exact local-search
+   polish on the action tape, and suffix re-solves. Runs until the time
+   budget expires.
+
+The `ace` agent replays the solved tape (`ghost_actions/L{level}_tas.json`);
+`scripts/solve.py` also stores dashboard ghosts (`tas` and `ai` labels) when
+it beats the stored time.
+
+## Layout
+
+```
+src/                 Rust engine (PyO3 bindings in lib.rs)
+  real_game.rs       game loop, pickups, win/crash
+  real_physics.rs    ship physics (thrust 400, gravity 100, rot 4.36 rad/s)
+  real_collision.rs  segment collision w/ 500px spatial grid
+  real_map_parser.rs level JSON parsing
+  pathfinder/        BFS grid pathfinder (level tooling only)
+  solver.rs          the AI: exact sim + beam search + refinement + polish
+
+spaceace/
+  core/              SpaceAceDirectEnv (Rust wrapper), gym wrapper, pygame viz
+  agents/            ace (solver playback), tas (sidecar replay), random, human
+  strategies/        canonical 6-action table
+  ghost_actions.py   exact per-tick action sidecars (ghost_actions/*.json)
+  tools/             level generation / analysis utilities
+
+scripts/solve.py     the solver driver (portfolio → refine/polish loop → save)
+dashboard/           Flask dashboard: ghosts, leaderboard, job history
+web/                 browser build of the game with ghost racing
 ```
 
 ## License

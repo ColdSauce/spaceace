@@ -16,80 +16,13 @@ LOGS_DIR = PROJECT_ROOT / "dashboard" / "job_logs"
 LOGS_DIR.mkdir(exist_ok=True)
 
 # Map trainer names to their python module commands
-TRAINER_COMMANDS = {
-    "ppo": ["-m", "spaceace.agents.ppo.train"],
-    "ppo_curriculum": ["-m", "spaceace.agents.ppo.curriculum_train"],
-    "alphazero": ["-m", "spaceace.agents.alphazero.train"],
-    "alphazero_curriculum": ["-m", "spaceace.agents.alphazero.curriculum_train"],
-    "hrl_pilot": ["-m", "spaceace.agents.hrl.train_pilot"],
-}
+# Trainer launching is retired: the AI is the offline ace solver
+# (scripts/solve.py), which is run directly rather than through dashboard
+# jobs. These tables stay (empty) so the jobs API and historical job
+# records keep working.
+TRAINER_COMMANDS: dict[str, list[str]] = {}
 
-# Which CLI args each trainer accepts (for building the command)
-TRAINER_ARGS = {
-    "ppo": {
-        "level": {"flag": "--level", "type": "int"},
-        "timesteps": {"flag": "--timesteps", "type": "int"},
-        "max_steps": {"flag": "--max-steps", "type": "int"},
-        "action_repeat": {"flag": "--action-repeat", "type": "int"},
-        "obs": {"flag": "--obs", "type": "str"},
-        "reward": {"flag": "--reward", "type": "str"},
-        "seed": {"flag": "--seed", "type": "int"},
-        "n_envs": {"flag": "--n-envs", "type": "int"},
-        "resume": {"flag": "--resume", "type": "str"},
-    },
-    "ppo_curriculum": {
-        "stages": {"flag": "--stages", "type": "str"},
-        "timesteps": {"flag": "--timesteps", "type": "int"},
-        "advance_win_rate": {"flag": "--advance-win-rate", "type": "float"},
-        "min_steps_per_stage": {"flag": "--min-steps-per-stage", "type": "int"},
-        "max_episode_steps": {"flag": "--max-episode-steps", "type": "int"},
-        "action_repeat": {"flag": "--action-repeat", "type": "int"},
-        "seed": {"flag": "--seed", "type": "int"},
-    },
-    "alphazero": {
-        "level": {"flag": "--level", "type": "int"},
-        "iterations": {"flag": "--iterations", "type": "int"},
-        "games_per_iter": {"flag": "--games-per-iter", "type": "int"},
-        "num_sims": {"flag": "--num-sims", "type": "int"},
-        "action_repeat": {"flag": "--action-repeat", "type": "int"},
-        "epochs": {"flag": "--epochs", "type": "int"},
-        "batch_size": {"flag": "--batch-size", "type": "int"},
-        "lr": {"flag": "--lr", "type": "float"},
-        "max_steps": {"flag": "--max-steps", "type": "int"},
-        "fresh": {"flag": "--fresh", "type": "bool"},
-    },
-    "alphazero_curriculum": {
-        "base_levels": {"flag": "--base-levels", "type": "str"},
-        "iterations": {"flag": "--iterations", "type": "int"},
-        "iters_per_stage": {"flag": "--iters-per-stage", "type": "int"},
-        "advance_win_rate": {"flag": "--advance-win-rate", "type": "float"},
-        "advance_metric": {"flag": "--advance-metric", "type": "str"},
-        "min_iters": {"flag": "--min-iters", "type": "int"},
-        "games_per_iter": {"flag": "--games-per-iter", "type": "int"},
-        "num_sims": {"flag": "--num-sims", "type": "int"},
-        "action_repeat": {"flag": "--action-repeat", "type": "int"},
-        "max_episode_steps": {"flag": "--max-episode-steps", "type": "int"},
-        "epochs": {"flag": "--epochs", "type": "int"},
-        "batch_size": {"flag": "--batch-size", "type": "int"},
-        "lr": {"flag": "--lr", "type": "float"},
-        "buffer_size": {"flag": "--buffer-size", "type": "int"},
-        "eval_games": {"flag": "--eval-games", "type": "int"},
-        "seed": {"flag": "--seed", "type": "int"},
-        "fresh": {"flag": "--fresh", "type": "bool"},
-        "skip_variant_generation": {"flag": "--skip-variant-generation", "type": "bool"},
-    },
-    "hrl_pilot": {
-        "levels": {"flag": "--levels", "type": "str"},
-        "timesteps": {"flag": "--timesteps", "type": "int"},
-        "max_steps": {"flag": "--max-steps", "type": "int"},
-        "action_repeat": {"flag": "--action-repeat", "type": "int"},
-        "seed": {"flag": "--seed", "type": "int"},
-    },
-}
-
-# Track running processes (pid -> Popen) so we can kill them
-_processes: dict[int, subprocess.Popen] = {}
-_lock = threading.Lock()
+TRAINER_ARGS: dict[str, dict] = {}
 
 
 def _build_command(trainer: str, args: dict) -> list[str]:
