@@ -158,6 +158,11 @@ pub struct BeamParams {
     /// Divisor turning speed into the projection horizon (t = v / proj_div);
     /// smaller projects further ahead, rewarding velocity more sharply.
     pub proj_div: f32,
+    /// Multiplier on the doom penalty. 1.0 for global solves (extinction is
+    /// fatal there). Corridor refinement warm-starts from a proven tape —
+    /// the reference node always survives — so it can afford near-zero doom
+    /// and let raw physics prune, which unlocks expert-speed cornering.
+    pub doom_scale: f32,
     /// Amplitude (in px) of seeded rank noise — decorrelates ties across
     /// seeds so restarts explore different regions of the search space.
     pub jitter: f32,
@@ -175,6 +180,7 @@ impl Default for BeamParams {
             lookahead: 1.0,
             mix: 0.8,
             proj_div: 700.0,
+            doom_scale: 1.0,
             jitter: 3.0,
         }
     }
@@ -186,6 +192,33 @@ struct Cand {
     state: SimState,
     parent: u32,
     action: u8,
+}
+
+/// Target state for rendezvous prefix re-solves.
+struct RendezvousTarget {
+    state: SimState,
+    tol_pos: f32,
+    tol_vel: f32,
+    tol_rot: f32,
+}
+
+impl RendezvousTarget {
+    #[inline]
+    fn matches(&self, s: &SimState) -> bool {
+        s.mask == self.state.mask
+            && (s.x - self.state.x).abs() <= self.tol_pos
+            && (s.y - self.state.y).abs() <= self.tol_pos
+            && (s.vx - self.state.vx).abs() <= self.tol_vel
+            && (s.vy - self.state.vy).abs() <= self.tol_vel
+            && {
+                let two_pi = 2.0 * PI;
+                let mut dr = (s.rot - self.state.rot).rem_euclid(two_pi);
+                if dr > PI {
+                    dr = two_pi - dr;
+                }
+                dr <= self.tol_rot
+            }
+    }
 }
 
 /// Dilated occupancy grid around a reference trajectory (see `refine`).
@@ -281,6 +314,11 @@ impl AceSolver {
         // Blocked grids at progressively tighter inflation. A pickup's field
         // uses the widest inflation that still reaches the spawn cell, so
         // narrow-corridor pickups automatically fall back to tighter grids.
+        //
+        // 30px inflation (< ship wingspan 48px) is mildly pessimistic; that
+        // is intentional. Tighter inflations were tried and lure the beam
+        // deep into converging dead-ends (e.g. the L7 tower notch), where
+        // whole cohorts die; the loss outweighs the better route estimates.
         let inflations = [30.0f32, 20.0, 12.0];
         let blocked_grids: Vec<Vec<bool>> = inflations
             .iter()
@@ -699,12 +737,16 @@ impl AceSolver {
             }
             if debug && (tick % 60 == 0 || keep.is_empty()) {
                 let mut best_h = i32::MAX;
+                let mut best_pos = (0.0f32, 0.0f32, 0u32);
                 let mut doomed = 0usize;
                 let mut speed_sum = 0.0f64;
                 for &i in &keep {
                     let s = &cands[i].state;
                     let h = self.h_px(s.x, s.y, s.mask);
-                    best_h = best_h.min(h);
+                    if h < best_h {
+                        best_h = h;
+                        best_pos = (s.x, s.y, s.mask);
+                    }
                     let speed = (s.vx * s.vx + s.vy * s.vy).sqrt();
                     speed_sum += speed as f64;
                     if self.doom_penalty(s) > 0.0 {
@@ -713,8 +755,8 @@ impl AceSolver {
                 }
                 let max_bits = keep.iter().map(|&i| cands[i].state.mask.count_ones()).max().unwrap_or(0);
                 eprintln!(
-                    "[beam] tick={} cands={} kept={} best_h={} max_pickups={} doomed={}/{} mean_speed={:.0}",
-                    tick, cands.len(), keep.len(), best_h, max_bits, doomed, keep.len(),
+                    "[beam] tick={} cands={} kept={} best_h={} at ({:.0},{:.0}) mask={:b} max_pickups={} doomed={}/{} mean_speed={:.0}",
+                    tick, cands.len(), keep.len(), best_h, best_pos.0, best_pos.1, best_pos.2, max_bits, doomed, keep.len(),
                     if keep.is_empty() { 0.0 } else { speed_sum / keep.len() as f64 }
                 );
             }
@@ -765,7 +807,10 @@ impl AceSolver {
         k = mix64(k ^ qvx as u64);
         k = mix64(k ^ qvy as u64);
         k = mix64(k ^ qr as u64);
-        k = mix64(k ^ s.mask as u64);
+        // Collision-skip parity is real state: at speed the engine only
+        // checks walls every other tick, so two otherwise-identical states
+        // with different parity can thread different corner clips.
+        k = mix64(k ^ s.mask as u64 ^ ((s.skip as u64 & 1) << 63));
         k
     }
 
@@ -835,24 +880,64 @@ impl AceSolver {
             dth = 2.0 * PI - dth;
         }
         let t_rot = dth / ROTATION_SPEED;
-        // Effective braking acceleration ~330 px/s^2 (thrust minus a
-        // gravity margin); ship nose sticks out ~40px.
-        let d_need = speed * t_rot + speed * speed / (2.0 * 330.0) + 40.0;
-        let d_wall = self.ray_wall_dist(s.x, s.y, ux, uy, d_need);
-        if d_wall < d_need {
-            3000.0 + (d_need - d_wall)
-        } else {
-            0.0
+        // Direction-aware braking: gravity helps kill upward velocity
+        // (uy < 0 → decel ≈ 500) and fights the brake on descents
+        // (uy > 0 → decel ≈ 300). A fixed conservative value over-brakes
+        // climbs, which is where expert lines carry the most speed.
+        let a_eff = (400.0 - 100.0 * uy).clamp(280.0, 490.0);
+        // Ship nose sticks out ~40px.
+        let d_need = speed * t_rot + speed * speed / (2.0 * a_eff) + 40.0;
+        let d_ahead = self.ray_wall_dist(s.x, s.y, ux, uy, d_need);
+        if d_ahead >= d_need {
+            return 0.0;
         }
+        3000.0 + (d_need - d_ahead)
     }
 
     #[inline]
     fn rank(&self, s: &SimState, p: &BeamParams, key: u64) -> f32 {
         let h_now = self.h_px(s.x, s.y, s.mask) as f32;
         let speed = (s.vx * s.vx + s.vy * s.vy).sqrt();
-        let doom = self.doom_penalty(s);
-        let t_stop = (speed / p.proj_div).min(p.lookahead);
-        let h_stop = self.h_px(s.x + s.vx * t_stop, s.y + s.vy * t_stop, s.mask) as f32;
+        let mut t_stop = (speed / p.proj_div).min(p.lookahead);
+        // Line-of-sight clamp: never project the velocity reward through a
+        // wall. With thin partitions, the far side can be much closer to the
+        // goal, and an unclamped projection would reward flying into walls.
+        if speed > 60.0 {
+            let proj_dist = speed * t_stop;
+            let d_ahead = self.ray_wall_dist(s.x, s.y, s.vx / speed, s.vy / speed, proj_dist);
+            if d_ahead < proj_dist {
+                t_stop = (d_ahead - 20.0).max(0.0) / speed;
+            }
+        }
+        let ex = s.x + s.vx * t_stop;
+        let ey = s.y + s.vy * t_stop;
+
+        // Fly-through credit: if the projected segment passes through a
+        // remaining pickup's collection radius, evaluate the projection with
+        // that pickup collected. Without this, h measures distance TO the
+        // pickup, so a fast fly-through looks like overshoot and the rank
+        // rewards braking to a stop at every pickup — the single biggest
+        // gap between "AI that completes the level" and expert racing lines.
+        let mut proj_mask = s.mask;
+        let mut rem = self.full_mask & !s.mask;
+        while rem != 0 {
+            let pi = rem.trailing_zeros() as usize;
+            rem &= rem - 1;
+            let (px, py) = self.pickups[pi];
+            // 40px: collection radius (46.5) minus a small aiming margin.
+            if point_seg_dist_sq(px, py, s.x, s.y, ex, ey) <= 40.0 * 40.0 {
+                proj_mask |= 1 << pi;
+            }
+        }
+
+        // Final-dash exemption: if the projection completes the level, the
+        // ship doesn't need to survive afterwards — no doom, and h_stop is 0.
+        let doom = if proj_mask == self.full_mask {
+            0.0
+        } else {
+            self.doom_penalty(s) * p.doom_scale
+        };
+        let h_stop = self.h_px(ex, ey, proj_mask) as f32;
         let h_stop = if h_stop >= UNREACHABLE as f32 { h_now } else { h_stop };
 
         let jitter = if p.jitter > 0.0 {
@@ -936,6 +1021,202 @@ impl AceSolver {
         } else {
             None
         }
+    }
+
+    /// Rendezvous prefix re-solve: beam-search a shorter path from spawn to
+    /// a state matching the tape's state at `rendezvous_tick` (within the
+    /// given tolerances, same pickup mask), then splice the original suffix
+    /// and validate by exact replay. This attacks the *beginning* of a tape,
+    /// which suffix re-solves and warm-started refinement structurally
+    /// cannot improve (early deviations must otherwise re-earn the entire
+    /// remaining route before they are adopted).
+    pub fn resolve_prefix(
+        &self,
+        tape: &[u8],
+        rendezvous_tick: usize,
+        tol_pos: f32,
+        tol_vel: f32,
+        tol_rot: f32,
+        p: &BeamParams,
+    ) -> Option<Vec<u8>> {
+        let (completed, _, total) = self.replay(tape);
+        if !completed || rendezvous_tick + 8 >= total as usize {
+            return None;
+        }
+        let target = self.state_after(&tape[..rendezvous_tick])?;
+        let suffix = &tape[rendezvous_tick..total as usize];
+
+        // Reference states for warm-starting the prefix search.
+        let mut ref_states = Vec::with_capacity(rendezvous_tick + 1);
+        let mut st = self.spawn;
+        ref_states.push(st);
+        for &a in &tape[..rendezvous_tick] {
+            if self.step(&mut st, a) != StepOutcome::Alive {
+                return None;
+            }
+            ref_states.push(st);
+        }
+
+        let params = BeamParams { max_ticks: rendezvous_tick as u32 - 1, ..*p };
+        let matcher = RendezvousTarget { state: target, tol_pos, tol_vel, tol_rot };
+        let candidates = self.beam_prefix_matches(
+            self.spawn, &params, &matcher,
+            (&ref_states, &tape[..rendezvous_tick]),
+        );
+        // Earliest-arriving candidates first: each saves (rendezvous_tick - t).
+        let debug = std::env::var("ACE_DEBUG").is_ok();
+        if debug {
+            eprintln!(
+                "[rendezvous] target tick {} -> {} match candidates (earliest {:?})",
+                rendezvous_tick,
+                candidates.len(),
+                candidates.first().map(|c| c.0)
+            );
+        }
+        for (arrive_tick, mut prefix) in candidates {
+            prefix.extend_from_slice(suffix);
+            let (ok, _, ticks) = self.replay(&prefix);
+            if debug {
+                eprintln!(
+                    "[rendezvous] splice arrive={} (saves {}): completed={} ticks={}",
+                    arrive_tick, rendezvous_tick as i64 - arrive_tick as i64, ok, ticks
+                );
+            }
+            if ok && ticks < total {
+                prefix.truncate(ticks as usize);
+                return Some(prefix);
+            }
+        }
+        None
+    }
+
+    /// Beam over the prefix window collecting states that match `matcher`
+    /// earlier than the reference. Returns reconstructed prefixes sorted by
+    /// arrival tick (earliest first).
+    fn beam_prefix_matches(
+        &self,
+        start: SimState,
+        p: &BeamParams,
+        matcher: &RendezvousTarget,
+        warm: (&[SimState], &[u8]),
+    ) -> Vec<(u32, Vec<u8>)> {
+        let mut cur: Vec<SimState> = vec![start];
+        let mut links: Vec<(Vec<u32>, Vec<u8>)> = Vec::new();
+        let mut ref_idx: Option<u32> = Some(0);
+        let mut found: Vec<(u32, Vec<u8>)> = Vec::new();
+
+        for tick in 0..p.max_ticks {
+            let chunk = (cur.len() / (rayon::current_num_threads() * 4)).max(64);
+            let cands: Vec<Cand> = cur
+                .par_chunks(chunk)
+                .enumerate()
+                .flat_map_iter(|(ci, states)| {
+                    let base = ci * chunk;
+                    let mut out = Vec::with_capacity(states.len() * 6);
+                    for (si, s0) in states.iter().enumerate() {
+                        for a in 0..6u8 {
+                            let mut s = *s0;
+                            if self.step(&mut s, a) == StepOutcome::Crashed {
+                                continue;
+                            }
+                            let key = self.quant_key(&s, p);
+                            let rank = self.rank_to_target(&s, p, key, matcher);
+                            out.push(Cand { key, rank, state: s, parent: (base + si) as u32, action: a });
+                        }
+                    }
+                    out
+                })
+                .collect();
+
+            // Collect matches at this tick (they still go into the beam too).
+            for c in &cands {
+                if matcher.matches(&c.state) {
+                    let mut prefix = vec![c.action];
+                    let mut parent = c.parent;
+                    for (parents, actions) in links.iter().rev() {
+                        prefix.push(actions[parent as usize]);
+                        parent = parents[parent as usize];
+                    }
+                    prefix.reverse();
+                    found.push((tick + 1, prefix));
+                }
+            }
+            if found.len() >= 64 {
+                break; // plenty of splice candidates
+            }
+
+            let mut seen: HashMap<u64, usize> = HashMap::with_capacity(cands.len());
+            let mut keep: Vec<usize> = Vec::with_capacity(cands.len());
+            for (i, c) in cands.iter().enumerate() {
+                match seen.entry(c.key) {
+                    std::collections::hash_map::Entry::Vacant(e) => {
+                        e.insert(keep.len());
+                        keep.push(i);
+                    }
+                    std::collections::hash_map::Entry::Occupied(e) => {
+                        let slot = *e.get();
+                        if c.rank < cands[keep[slot]].rank {
+                            keep[slot] = i;
+                        }
+                    }
+                }
+            }
+            if keep.len() > p.width {
+                keep.select_nth_unstable_by(p.width, |&a, &b| {
+                    cands[a].rank.partial_cmp(&cands[b].rank).unwrap()
+                });
+                keep.truncate(p.width);
+            }
+            if keep.is_empty() && ref_idx.is_none() {
+                break;
+            }
+
+            let mut parents = Vec::with_capacity(keep.len() + 1);
+            let mut actions = Vec::with_capacity(keep.len() + 1);
+            let mut next = Vec::with_capacity(keep.len() + 1);
+            for &i in &keep {
+                let c = &cands[i];
+                parents.push(c.parent);
+                actions.push(c.action);
+                next.push(c.state);
+            }
+            let (ref_states, ref_actions) = warm;
+            if let Some(pi) = ref_idx {
+                let t1 = tick as usize + 1;
+                if t1 < ref_states.len() {
+                    parents.push(pi);
+                    actions.push(ref_actions[tick as usize]);
+                    next.push(ref_states[t1]);
+                    ref_idx = Some(next.len() as u32 - 1);
+                } else {
+                    ref_idx = None;
+                }
+            }
+            links.push((parents, actions));
+            cur = next;
+        }
+        found.sort_by_key(|&(t, _)| t);
+        found
+    }
+
+    /// Rank for the rendezvous prefix search: distance to the target state,
+    /// with the usual doom/jitter, plus velocity-matching pressure.
+    #[inline]
+    fn rank_to_target(&self, s: &SimState, p: &BeamParams, key: u64, m: &RendezvousTarget) -> f32 {
+        if s.mask != m.state.mask {
+            // Wrong pickup set: rank by normal route heuristic (must collect
+            // the missing pickups first).
+            return self.rank(s, p, key) + 5000.0;
+        }
+        let dx = s.x - m.state.x;
+        let dy = s.y - m.state.y;
+        let dvx = s.vx - m.state.vx;
+        let dvy = s.vy - m.state.vy;
+        let pos_d = (dx * dx + dy * dy).sqrt();
+        let vel_d = (dvx * dvx + dvy * dvy).sqrt();
+        let doom = self.doom_penalty(s) * p.doom_scale;
+        let jitter = (mix64(key ^ p.seed) & 0xFFFF) as f32 / 65535.0 * p.jitter;
+        pos_d + 0.5 * vel_d + doom + jitter
     }
 
     /// Re-solve the tape suffix from `from_tick` with a beam bounded to beat

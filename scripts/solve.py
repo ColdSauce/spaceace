@@ -125,6 +125,8 @@ def main() -> int:
     ap.add_argument("--labels", type=str, default="tas,ai", help="ghost labels to save")
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--fresh", action="store_true", help="ignore the existing sidecar")
+    ap.add_argument("--deep", action="store_true",
+                    help="finer/wider refinement schedule for squeezing an already-good tape")
     args = ap.parse_args()
 
     level = args.level
@@ -175,17 +177,34 @@ def main() -> int:
 
     # --- stage 2: anytime improvement loop ------------------------------------
     deadline = t_start + args.budget_min * 60
-    schedule = itertools.cycle([
-        ("refine", dict(radius=200.0, quant_pos=4.0, quant_vel=8.0)),
-        ("refine", dict(radius=150.0, quant_pos=3.0, quant_vel=6.0)),
-        ("polish", {}),
-        ("refine", dict(radius=120.0, quant_pos=2.0, quant_vel=4.0)),
-        ("refine", dict(radius=250.0, quant_pos=5.0, quant_vel=10.0)),
-        ("suffix", {}),
-    ])
+    # "global" = warm-started whole-map re-search (radius covers everything):
+    # a full beam solve that provably can't do worse than the incumbent. It
+    # is the workhorse; tubes and polish grind out the rest.
+    if args.deep:
+        stages = [
+            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3)),
+            ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
+            ("polish", {}),
+            ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
+            ("refine", dict(radius=150.0, quant_pos=1.5, quant_vel=3.0, rot_bins=128, doom_scale=0.1)),
+            ("suffix", {}),
+            ("polish", {}),
+        ]
+        stale_limit = 3 * len(stages)
+    else:
+        stages = [
+            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3)),
+            ("refine", dict(radius=200.0, quant_pos=2.5, quant_vel=5.0, doom_scale=0.1)),
+            ("polish", {}),
+            ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
+            ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
+            ("suffix", {}),
+        ]
+        stale_limit = 2 * len(stages)
+    schedule = itertools.cycle(stages)
     round_idx = 0
     stale = 0
-    while time.time() < deadline and stale < 12:
+    while time.time() < deadline and stale < stale_limit:
         kind, kw = next(schedule)
         round_idx += 1
         before = len(best)
@@ -195,7 +214,8 @@ def main() -> int:
             if r:
                 best = list(r)
         elif kind == "polish":
-            iters = max(60_000, min(400_000, 500_000_000 // max(len(best), 1)))
+            budget_steps = 2_000_000_000 if args.deep else 500_000_000
+            iters = max(60_000, min(2_000_000, budget_steps // max(len(best), 1)))
             tape, ticks = solver.polish(bytes(best), iters=iters, chains=10, seed=round_idx * 97)
             if ticks < len(best):
                 best = list(tape[:ticks])
