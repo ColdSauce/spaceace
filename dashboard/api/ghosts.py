@@ -47,8 +47,8 @@ def save_ghost():
             return jsonify({"error": f"{field} required"}), 400
 
     ghost_type = data["ghost_type"]
-    if ghost_type not in ("ai", "human", "goofy", "eager", "rewind"):
-        return jsonify({"error": "ghost_type must be 'ai', 'human', 'goofy', 'eager', or 'rewind'"}), 400
+    if ghost_type not in ("ai", "human", "goofy", "eager", "rewind", "perfect"):
+        return jsonify({"error": "ghost_type must be 'ai', 'human', 'goofy', 'eager', 'rewind', or 'perfect'"}), 400
 
     level = int(data["level"])
     time_seconds = float(data["time_seconds"])

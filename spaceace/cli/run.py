@@ -10,29 +10,47 @@ import spaceace.agents  # noqa: F401 — eager-imports built-in agents
 from spaceace.agents.base import AGENT_REGISTRY
 from spaceace.agents import load_agent_module
 from spaceace.core.viz import VisualRenderer, extract_game_info
+from spaceace.ghost_actions import action_to_index, write_sidecar_if_best
 
 
-def _save_ghost_if_best(level: int, ghost_type: str, step_count: int, frames: list[dict]) -> None:
+def _save_ghost_if_best(
+    level: int,
+    ghost_type: str,
+    tick_count: int,
+    frames: list[dict],
+    action_indices: list[int] | None = None,
+) -> None:
     """If this run's completion time beats the stored ghost for (level, ghost_type),
     overwrite it in the dashboard DB. Mirrors scripts/capture_ai_ghost.py's save
     path — same frame format, same down-sample cadence (~10fps), same "faster wins"
-    rule — so run.py and the capture script populate a consistent ghost table."""
+    rule — so run.py and the capture script populate a consistent ghost table.
+
+    `tick_count` is the true physics-tick count (one tick = 1/60s). Each entry in
+    `frames` must include a "tick" field recording the physics-tick count at
+    which it was captured — not the agent-decision index — because agents like
+    mcts_rewind advance multiple ticks per agent.step() call. Timestamping by
+    decision index made those ghosts play back N× too fast."""
     try:
         from dashboard.db import get_db, init_db
     except Exception as e:
         print(f"  [ghost] dashboard.db unavailable ({e}); skipping save")
         return
 
-    time_seconds = step_count / 60.0
+    time_seconds = tick_count / 60.0
     ghost_frames = []
+    target_stride = 6  # ~10 Hz playback
+    next_emit_tick = 0
+    last_idx = len(frames) - 1
     for i, f in enumerate(frames):
-        if i % 6 == 0 or i == len(frames) - 1:
+        tick = int(f.get("tick", i))
+        if tick >= next_emit_tick or i == last_idx:
             ghost_frames.append({
                 "x": f["x"], "y": f["y"],
                 "rotation": f["rotation"],
                 "thrusting": f["thrusting"],
-                "time": round(i / 60.0, 3),
+                "time": round(tick / 60.0, 3),
             })
+            next_emit_tick = tick + target_stride
 
     init_db()
     db = get_db()
@@ -44,20 +62,23 @@ def _save_ghost_if_best(level: int, ghost_type: str, step_count: int, frames: li
         if existing and existing["time_seconds"] <= time_seconds:
             print(f"  [ghost] existing {ghost_type} ghost for level {level} is faster "
                   f"({existing['time_seconds']:.2f}s ≤ {time_seconds:.2f}s), not saving")
-            return
-        db.execute(
-            """INSERT OR REPLACE INTO ghost_replays
-               (level, ghost_type, steps, time_seconds, frames_json)
-               VALUES (?, ?, ?, ?, ?)""",
-            (level, ghost_type, len(ghost_frames), time_seconds,
-             json.dumps(ghost_frames)),
-        )
-        db.commit()
-        prev = f" (prev {existing['time_seconds']:.2f}s)" if existing else ""
-        print(f"  [ghost] saved {ghost_type} for level {level}: "
-              f"{len(ghost_frames)} frames, {time_seconds:.2f}s{prev}")
+        else:
+            db.execute(
+                """INSERT OR REPLACE INTO ghost_replays
+                   (level, ghost_type, steps, time_seconds, frames_json)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (level, ghost_type, len(ghost_frames), time_seconds,
+                 json.dumps(ghost_frames)),
+            )
+            db.commit()
+            prev = f" (prev {existing['time_seconds']:.2f}s)" if existing else ""
+            print(f"  [ghost] saved {ghost_type} for level {level}: "
+                  f"{len(ghost_frames)} frames, {time_seconds:.2f}s{prev}")
     finally:
         db.close()
+
+    if action_indices is not None:
+        write_sidecar_if_best(level, ghost_type, action_indices, tick_count)
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,20 +132,66 @@ def parse_args() -> argparse.Namespace:
                    "Typical: 1.0-1.5. Shrinks effective branching factor at shallow-visit "
                    "nodes so promising lines grow deeper for the same sim budget.")
     # A* planner options
-    p.add_argument("--astar-action-repeat", type=int, default=4,
-                   help="Frames per macro-action for A* planner (default 4)")
-    p.add_argument("--astar-pos-bucket", type=float, default=8.0,
-                   help="Position bucket size (px) for A* state canonicalization (default 8)")
-    p.add_argument("--astar-vel-bucket", type=float, default=8.0,
-                   help="Velocity bucket size (px/s) for A* (default 8)")
-    p.add_argument("--astar-rot-bucket-deg", type=float, default=10.0,
-                   help="Rotation bucket size (degrees) for A* (default 10)")
-    p.add_argument("--astar-leg-max-expansions", type=int, default=200_000,
-                   help="Per-leg expansion cap for A* inner solver (default 200000)")
-    p.add_argument("--astar-leg-time-limit", type=float, default=60.0,
-                   help="Per-leg wall-clock time limit for A* inner solver, seconds (default 60)")
-    p.add_argument("--astar-heuristic-weight", type=float, default=1.0,
-                   help="A* heuristic multiplier. 1.0=admissible, >1.0=weighted (faster, bounded-suboptimal)")
+    p.add_argument("--astar-action-repeat", type=int, default=10,
+                   help="Nominal frames per A* motion primitive (default 10)")
+    p.add_argument("--astar-pos-bucket", type=float, default=16.0,
+                   help="Position bucket size (px) for A* state canonicalization (default 16)")
+    p.add_argument("--astar-vel-bucket", type=float, default=16.0,
+                   help="Velocity bucket size (px/s) for A* (default 16)")
+    p.add_argument("--astar-rot-bucket-deg", type=float, default=15.0,
+                   help="Rotation bucket size (degrees) for A* (default 15)")
+    p.add_argument("--astar-max-expansions", "--astar-leg-max-expansions",
+                   dest="astar_max_expansions", type=int, default=200_000,
+                   help="Expansion cap for A* whole-level search (default 200000)")
+    p.add_argument("--astar-time-limit", "--astar-leg-time-limit",
+                   dest="astar_time_limit", type=float, default=60.0,
+                   help="Wall-clock time limit for A* whole-level search, seconds (default 60)")
+    p.add_argument("--astar-heuristic-weight", type=float, default=2.0,
+                   help="A* heuristic multiplier. 1.0=admissible, >1.0=weighted (default 2.0)")
+    p.add_argument("--astar-fallback", choices=("mcts", "none"), default="mcts",
+                   help="Policy to use if offline A* finds no complete plan (default mcts)")
+    p.add_argument("--astar-fallback-simulations", type=int, default=500,
+                   help="MCTS simulations per decision for A* fallback (default 500)")
+    p.add_argument("--astar-fallback-action-repeat", type=int, default=5,
+                   help="Base action repeat for A* MCTS fallback (default 5)")
+    # Kinodynamic (phase-space reference + cascaded PD) options
+    p.add_argument("--kinodyn-ds", type=float, default=6.0,
+                   help="Arc-length spacing of the resampled trajectory, px (default 6)")
+    p.add_argument("--kinodyn-smooth-sigma", type=float, default=3.0,
+                   help="Gaussian smoothing sigma, in samples (default 3 -> ~18 px)")
+    p.add_argument("--kinodyn-a-lat", type=float, default=220.0,
+                   help="Max lateral (centripetal) accel for cornering speed cap, px/s^2 (default 220)")
+    p.add_argument("--kinodyn-v-cap", type=float, default=500.0,
+                   help="Absolute speed cap applied by the velocity profile, px/s (default 500)")
+    p.add_argument("--kinodyn-v-final", type=float, default=180.0,
+                   help="Target speed at the final pickup, px/s (default 180)")
+    p.add_argument("--kinodyn-kp-pos", type=float, default=6.0,
+                   help="Position-feedback proportional gain, 1/s^2 (default 6.0)")
+    p.add_argument("--kinodyn-kd-vel", type=float, default=3.2,
+                   help="Velocity-feedback proportional gain, 1/s (default 3.2)")
+    p.add_argument("--kinodyn-rot-tol-deg", type=float, default=18.0,
+                   help="Heading-error tolerance before the tracker fires thrust, deg (default 18)")
+    p.add_argument("--kinodyn-thrust-deadband", type=float, default=40.0,
+                   help="Don't command thrust below this commanded accel magnitude, px/s^2 (default 40)")
+    p.add_argument("--kinodyn-lookahead-samples", type=int, default=4,
+                   help="Controller lookahead in resampled samples (default 4 -> ~24 px)")
+    p.add_argument("--kinodyn-tick-budget", type=int, default=6000,
+                   help="Max physics ticks to simulate per candidate ordering (default 6000 = 100s)")
+    p.add_argument("--kinodyn-max-idle", type=int, default=600,
+                   help="Abort if no pickup progress for this many ticks (default 600)")
+    p.add_argument("--kinodyn-no-enumerate", dest="kinodyn_enumerate", action="store_false",
+                   default=True,
+                   help="Skip exhaustive ordering enumeration for small pickup sets")
+    p.add_argument("--kinodyn-enumerate-threshold", type=int, default=5,
+                   help="Max pickups for which to exhaustively enumerate orderings (default 5)")
+    # TAS replay options
+    p.add_argument("--tas-path", type=str, default=None,
+                   help="Exact action trace JSON to replay with --agent tas. "
+                   "Default: ghost_actions/L<level>_<tas-label>.json.")
+    p.add_argument("--tas-label", type=str, default="ai",
+                   help="Ghost action sidecar label for --agent tas (default: ai)")
+    p.add_argument("--tas-validate", action="store_true",
+                   help="Replay the TAS trace once during setup and fail if it does not complete.")
     # mcts_rewind agent options
     p.add_argument("--rewind-budget", type=int, default=8,
                    help="mcts_rewind: max rewinds per episode (default 8)")
@@ -185,9 +252,29 @@ def main() -> None:
         "astar_pos_bucket": args.astar_pos_bucket,
         "astar_vel_bucket": args.astar_vel_bucket,
         "astar_rot_bucket_deg": args.astar_rot_bucket_deg,
-        "astar_leg_max_expansions": args.astar_leg_max_expansions,
-        "astar_leg_time_limit_s": args.astar_leg_time_limit,
+        "astar_max_expansions": args.astar_max_expansions,
+        "astar_time_limit_s": args.astar_time_limit,
         "astar_heuristic_weight": args.astar_heuristic_weight,
+        "astar_fallback": args.astar_fallback,
+        "astar_fallback_simulations": args.astar_fallback_simulations,
+        "astar_fallback_action_repeat": args.astar_fallback_action_repeat,
+        "kinodyn_ds": args.kinodyn_ds,
+        "kinodyn_smooth_sigma": args.kinodyn_smooth_sigma,
+        "kinodyn_a_lat": args.kinodyn_a_lat,
+        "kinodyn_v_cap": args.kinodyn_v_cap,
+        "kinodyn_v_final": args.kinodyn_v_final,
+        "kinodyn_kp_pos": args.kinodyn_kp_pos,
+        "kinodyn_kd_vel": args.kinodyn_kd_vel,
+        "kinodyn_rot_tol_deg": args.kinodyn_rot_tol_deg,
+        "kinodyn_thrust_deadband": args.kinodyn_thrust_deadband,
+        "kinodyn_lookahead_samples": args.kinodyn_lookahead_samples,
+        "kinodyn_tick_budget": args.kinodyn_tick_budget,
+        "kinodyn_max_idle": args.kinodyn_max_idle,
+        "kinodyn_enumerate_orders": args.kinodyn_enumerate,
+        "kinodyn_enumerate_threshold": args.kinodyn_enumerate_threshold,
+        "tas_path": args.tas_path,
+        "tas_label": args.tas_label,
+        "tas_validate": args.tas_validate,
         "rewind_budget": args.rewind_budget,
         "rewind_history": args.rewind_history,
         "rewind_stuck": args.rewind_stuck,
@@ -218,6 +305,8 @@ def main() -> None:
             total_reward = 0.0
             step_count = 0
             frames: list[dict] = []
+            action_indices: list[int] = []
+            last_action_tick = 0
             raw_env = agent.get_raw_env()
             while True:
                 action, reward, terminated, truncated, info = agent.step()
@@ -226,11 +315,20 @@ def main() -> None:
 
                 if args.save_ghost:
                     obs = raw_env.get_observation()
+                    tick = int(info.get("step_count", step_count))
+                    delta_ticks = max(0, tick - last_action_tick)
+                    if delta_ticks:
+                        action_indices.extend([action_to_index(action)] * delta_ticks)
+                    last_action_tick = tick
                     frames.append({
                         "x": round(float(obs[0]), 1),
                         "y": round(float(obs[1]), 1),
                         "rotation": round(float(obs[4]), 3),
                         "thrusting": int(action[2]) > 0,
+                        # True physics-tick count — required so agents like
+                        # mcts_rewind (which step multiple ticks per call)
+                        # produce correctly-timed ghost replays.
+                        "tick": tick,
                     })
 
                 if renderer:
@@ -258,7 +356,11 @@ def main() -> None:
                     )
                     print(f"  Episode {episode+1}: {status} | steps={step_count} reward={total_reward:.1f}")
                     if args.save_ghost and info.get("level_completed"):
-                        _save_ghost_if_best(args.level, ghost_label, step_count, frames)
+                        tick_count = int(info.get("step_count", step_count))
+                        _save_ghost_if_best(
+                            args.level, ghost_label, tick_count, frames,
+                            action_indices=action_indices,
+                        )
                     if renderer and args.screenshots:
                         renderer.save_screenshot(status.lower())
                     if renderer:

@@ -34,6 +34,7 @@ class AlphaZeroHparams:
     win_rate_window: int = 3
     iters_per_level: int = 10
     win_threshold: float = 0.5
+    advance_metric: str = "self_play"
     generate_curriculum: bool = False
     fresh: bool = False
 

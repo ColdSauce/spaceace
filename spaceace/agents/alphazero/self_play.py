@@ -142,12 +142,15 @@ def _unpack_rust_results(
 def _worker_play_games(args: tuple) -> tuple[list[float], list[float], list[float], list[tuple]]:
     """Worker function for parallel self-play. Runs entirely in Rust."""
     (level, num_games, num_simulations, c_puct, action_repeat, max_steps,
-     model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon) = args
+     model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon,
+     temperature_after_threshold, rng_seed) = args
     engine = spaceace_rl.PyAlphaZeroEngine(level, max_steps, model_path)
+    engine.set_rng_seed(rng_seed)
     obs_flat, pol_flat, values, stats = engine.play_games(
         num_games, num_simulations, c_puct, action_repeat,
         temp_threshold=temp_threshold, max_steps=max_steps,
         dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon,
+        temperature_after_threshold=temperature_after_threshold,
     )
     return obs_flat, pol_flat, values, stats
 
@@ -164,6 +167,8 @@ def run_self_play(
     temp_threshold: int = 30,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.25,
+    temperature_after_threshold: float = 0.1,
+    seed: Optional[int] = None,
 ) -> tuple[list[GameExample], list[GameStats]]:
     """Run multiple self-play games. Returns (examples, per_game_stats).
 
@@ -172,13 +177,20 @@ def run_self_play(
     if num_workers == 0:
         num_workers = os.cpu_count() or 1
 
+    base_seed = seed if seed is not None else int.from_bytes(os.urandom(4), "little")
+
+    def worker_seed(worker_idx: int) -> int:
+        return (base_seed + 0x9E3779B9 * (worker_idx + 1)) & 0xFFFFFFFF or 1
+
     if num_workers == 1 or num_games <= 2:
         # Sequential: single Rust call
         engine = spaceace_rl.PyAlphaZeroEngine(level, max_steps, model_path)
+        engine.set_rng_seed(worker_seed(0))
         obs_flat, pol_flat, values, stats_raw = engine.play_games(
             num_games, num_simulations, c_puct, action_repeat,
             temp_threshold=temp_threshold, max_steps=max_steps,
             dirichlet_alpha=dirichlet_alpha, dirichlet_epsilon=dirichlet_epsilon,
+            temperature_after_threshold=temperature_after_threshold,
         )
         examples, stats = _unpack_rust_results(obs_flat, pol_flat, values, stats_raw)
     else:
@@ -190,8 +202,9 @@ def run_self_play(
 
         worker_args = [
             (level, g, num_simulations, c_puct, action_repeat, max_steps,
-             model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon)
-            for g in games_per_worker
+             model_path, temp_threshold, dirichlet_alpha, dirichlet_epsilon,
+             temperature_after_threshold, worker_seed(i))
+            for i, g in enumerate(games_per_worker)
         ]
 
         print(f"  Parallelizing across {len(worker_args)} workers...")

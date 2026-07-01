@@ -358,7 +358,7 @@
       font-family: 'Share Tech Mono', monospace;
     }
     
-    .button-primary, #leaderboardBtn, #startBtn, #backToLevels, #gameControlsBtn, #backToLevelsFromLeaderboard, #resetBtn, #ghostToggle {
+    .button-primary, #leaderboardBtn, #startBtn, #backToLevels, #gameControlsBtn, #backToLevelsFromLeaderboard, #resetBtn, #ghostToggle, #starsToggle {
       background-color: var(--background);
       color: var(--text);
       border: 1px solid var(--primary);
@@ -463,6 +463,86 @@
     #gameControls button i {
       font-size: 14px;
       text-shadow: 0 0 5px var(--primary);
+    }
+    .tas-panel {
+      position: fixed;
+      top: 70px;
+      right: 10px;
+      z-index: 30;
+      width: 280px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.85);
+      border: 1px solid var(--primary);
+      box-shadow: var(--shadow);
+      font-family: 'Share Tech Mono', monospace;
+      color: var(--text);
+      font-size: 12px;
+    }
+    .tas-panel .tas-title {
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: var(--accent);
+      text-shadow: 0 0 6px var(--accent);
+      margin-bottom: 4px;
+    }
+    .tas-panel .tas-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin: 4px 0;
+      flex-wrap: wrap;
+    }
+    .tas-panel .tas-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 4px;
+    }
+    .tas-panel .tas-grid label {
+      display: flex;
+      flex-direction: column;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .tas-panel input[type="number"] {
+      width: 100%;
+      background: #000;
+      color: var(--primary);
+      border: 1px solid var(--primary-dark);
+      padding: 2px 4px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+    }
+    .tas-panel input[type="checkbox"] {
+      accent-color: var(--primary);
+    }
+    .tas-panel button {
+      background: #000;
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      padding: 4px 8px;
+      cursor: pointer;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+    }
+    .tas-panel button:hover {
+      background: var(--primary);
+      color: #000;
+    }
+    .tas-panel .tas-lbl {
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .tas-panel .tas-status {
+      color: var(--warning);
+      font-size: 11px;
+      min-height: 14px;
+    }
+    body.tas-active #gameCanvas {
+      cursor: grab;
+    }
+    body.tas-picking #gameCanvas {
+      cursor: crosshair;
     }
     canvas {
       background-color: var(--background);
@@ -701,7 +781,7 @@
       border-color: var(--accent);
       box-shadow: 0 0 15px rgba(0, 255, 65, 0.6);
     }
-    #ghostToggle {
+    #ghostToggle, #starsToggle {
       background-color: black;
       color: var(--text);
       border: 1px solid var(--primary);
@@ -719,20 +799,64 @@
       letter-spacing: 1px;
       text-shadow: 0 0 5px var(--primary);
     }
-    #ghostToggle i {
+    #ghostToggle i, #starsToggle i {
       font-size: 15px;
       text-shadow: 0 0 5px var(--primary);
     }
-    #ghostToggle:hover {
+    #ghostToggle:hover, #starsToggle:hover {
       background-color: rgba(0, 255, 65, 0.1);
       box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
     }
-    #ghostToggle.active {
+    #ghostToggle.active, #starsToggle.active {
       background-color: rgba(0, 255, 65, 0.2);
       color: var(--text);
       border-color: var(--primary);
       box-shadow: 0 0 15px rgba(0, 255, 65, 0.6), inset 0 0 10px rgba(0, 255, 65, 0.2);
     }
+    #ghostGroup { position: relative; display: inline-flex; }
+    #ghostFilterBtn {
+      background-color: black;
+      color: var(--text);
+      border: 1px solid var(--primary);
+      border-left: none;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 14px;
+      box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+      text-shadow: 0 0 5px var(--primary);
+    }
+    #ghostFilterBtn:hover { background-color: rgba(0, 255, 65, 0.1); }
+    #ghostFilterPanel {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 180px;
+      background-color: black;
+      border: 1px solid var(--primary);
+      box-shadow: 0 0 15px rgba(0, 255, 65, 0.5);
+      padding: 8px 10px;
+      z-index: 1000;
+      display: none;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      color: var(--text);
+    }
+    #ghostFilterPanel.open { display: block; }
+    #ghostFilterPanel label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    #ghostFilterPanel label .swatch {
+      width: 10px; height: 10px; display: inline-block;
+      box-shadow: 0 0 6px currentColor;
+    }
+    #ghostFilterPanel input[type=checkbox] { accent-color: var(--primary); }
     .help-text {
       color: var(--text);
       font-size: 15px;
@@ -830,14 +954,69 @@
       <i class="fas fa-arrow-left"></i>
       Exit Level
     </button>
-    <button id="ghostToggle">
-      <i class="fas fa-ghost"></i>
-      Ghost: Off
+    <span id="ghostGroup">
+      <button id="ghostToggle">
+        <i class="fas fa-ghost"></i>
+        Ghost: Off
+      </button>
+      <button id="ghostFilterBtn" title="Choose which ghosts to show">
+        <i class="fas fa-caret-down"></i>
+      </button>
+      <div id="ghostFilterPanel">
+        <label><input type="checkbox" data-ghost="human" checked><span class="swatch" style="color:#3a7bff;background:#3a7bff"></span>Human</label>
+        <label><input type="checkbox" data-ghost="ai" checked><span class="swatch" style="color:#ff00ff;background:#ff00ff"></span>AI</label>
+        <label><input type="checkbox" data-ghost="perfect" checked><span class="swatch" style="color:#ffd700;background:#ffd700"></span>Perfect</label>
+        <label><input type="checkbox" data-ghost="eager" checked><span class="swatch" style="color:#00e5ff;background:#00e5ff"></span>Eager</label>
+        <label><input type="checkbox" data-ghost="goofy" checked><span class="swatch" style="color:#39ff14;background:#39ff14"></span>Goofy</label>
+      </div>
+    </span>
+    <button id="starsToggle">
+      <i class="fas fa-star"></i>
+      Stars: On
     </button>
     <button id="resetBtn">
       <i class="fas fa-redo-alt"></i>
       Reset
     </button>
+    <button id="tasToggle">
+      <i class="fas fa-route"></i>
+      TAS: Off
+    </button>
+  </div>
+
+  <div id="tasPanel" class="tas-panel" style="display:none;">
+    <div class="tas-row tas-title">TAS Solver</div>
+    <div class="tas-row">
+      <button id="tasSetStart">Set Start</button>
+      <button id="tasUseShip">Use Ship</button>
+      <span id="tasStartLbl" class="tas-lbl">none</span>
+    </div>
+    <div class="tas-row">
+      <button id="tasSetTarget">Set Target</button>
+      <span id="tasTargetLbl" class="tas-lbl">none</span>
+    </div>
+    <div class="tas-row tas-grid">
+      <label>tgt vx <input id="tasTvx" type="number" value="0" step="10"></label>
+      <label>tgt vy <input id="tasTvy" type="number" value="0" step="10"></label>
+      <label>tgt rot <input id="tasTrot" type="number" value="0" step="0.1"></label>
+    </div>
+    <div class="tas-row tas-grid">
+      <label>pos tol <input id="tasPosTol" type="number" value="25" step="5"></label>
+      <label>vel tol <input id="tasVelTol" type="number" value="60" step="10"></label>
+      <label>match vel <input id="tasMatchVel" type="checkbox"></label>
+    </div>
+    <div class="tas-row tas-grid">
+      <label>frames/act <input id="tasFrames" type="number" value="6" step="1" min="1" max="30"></label>
+      <label>beam <input id="tasBeam" type="number" value="400" step="50"></label>
+      <label>max depth <input id="tasDepth" type="number" value="200" step="10"></label>
+    </div>
+    <div class="tas-row">
+      <button id="tasSolve">Solve</button>
+      <button id="tasCancel" style="display:none;">Cancel</button>
+      <button id="tasPlay">Play</button>
+      <button id="tasClear">Clear</button>
+    </div>
+    <div id="tasStatus" class="tas-row tas-status">idle</div>
   </div>
   
   <div id="ui">
@@ -1079,7 +1258,7 @@ let gameState = {
     ai:    { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
     goofy: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
     eager: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
-    rewind: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
+    perfect: { replayData: null, prevIndex: 0, nextIndex: 0, interpolation: 0 },
   },
   gameTime:0,
   bestTime:null,
@@ -1090,13 +1269,37 @@ let gameState = {
   particles:[],
   gameActive: false,
   currentRecording: [], // For ghost replay
-  levelCompleted: false // Flag to prevent multiple endRun calls
+  levelCompleted: false, // Flag to prevent multiple endRun calls
+  tas: {
+    enabled: false,
+    paused: false,
+    pickMode: null, // 'start' | 'target' | null
+    start: null,    // {x,y,vx,vy,rotation}
+    target: null,   // {x,y,vx,vy,rotation}
+    solution: null, // {actions:[idx], states:[{x,y,...}], dt, framesPerAction}
+    playing: false,
+    playIndex: 0,
+    playFrame: 0,
+  }
 };
 
 // Leaderboard and level progress system (inspired by the pygame implementation)
 // Store in localStorage just like the pygame version uses JSON files
 const STORAGE_KEY = 'spaceAceData';
 const GHOST_STORAGE_KEY = 'spaceAceGhosts';
+const GHOST_TYPES_STORAGE_KEY = 'spaceAceGhostTypes';
+
+// Per-type ghost visibility (independent of master enable). Defaults to all on.
+let ghostTypeEnabled = { human: true, ai: true, perfect: true, eager: true, goofy: true };
+function loadGhostTypeFilters() {
+  try {
+    const raw = localStorage.getItem(GHOST_TYPES_STORAGE_KEY);
+    if (raw) ghostTypeEnabled = { ...ghostTypeEnabled, ...JSON.parse(raw) };
+  } catch (e) { /* ignore */ }
+}
+function saveGhostTypeFilters() {
+  try { localStorage.setItem(GHOST_TYPES_STORAGE_KEY, JSON.stringify(ghostTypeEnabled)); } catch (e) {}
+}
 
 // Default leaderboard structure - matches the pygame format
 let leaderboards = {
@@ -1566,9 +1769,9 @@ function fetchServerGhosts(levelNum) {
         gameState.ghost.eager.replayData = data.eager.frames;
         console.log(`Loaded eager ghost for level ${levelNum}, time: ${data.eager.time}s`);
       }
-      if (data.rewind && data.rewind.frames && data.rewind.frames.length > 0) {
-        gameState.ghost.rewind.replayData = data.rewind.frames;
-        console.log(`Loaded rewind ghost for level ${levelNum}, time: ${data.rewind.time}s`);
+      if (data.perfect && data.perfect.frames && data.perfect.frames.length > 0) {
+        gameState.ghost.perfect.replayData = data.perfect.frames;
+        console.log(`Loaded perfect ghost for level ${levelNum}, time: ${data.perfect.time}s`);
       }
       // Use server human ghost if no localStorage ghost exists
       if (!gameState.ghost.human.replayData && data.human && data.human.frames && data.human.frames.length > 0) {
@@ -1598,10 +1801,10 @@ function loadGhostForLevel(levelNum) {
   gameState.ghost.eager.prevIndex = 0;
   gameState.ghost.eager.nextIndex = 0;
   gameState.ghost.eager.interpolation = 0;
-  gameState.ghost.rewind.replayData = null;
-  gameState.ghost.rewind.prevIndex = 0;
-  gameState.ghost.rewind.nextIndex = 0;
-  gameState.ghost.rewind.interpolation = 0;
+  gameState.ghost.perfect.replayData = null;
+  gameState.ghost.perfect.prevIndex = 0;
+  gameState.ghost.perfect.nextIndex = 0;
+  gameState.ghost.perfect.interpolation = 0;
 
   if (!gameState.ghost.enabled) return;
 
@@ -1660,7 +1863,7 @@ function resetGame() {
   gameState.camera.targetZoom = 0.8;
 
   // Reset ghost replay indices for both ghost types
-  ['human', 'ai', 'goofy', 'eager', 'rewind'].forEach(type => {
+  ['human', 'ai', 'goofy', 'eager', 'perfect'].forEach(type => {
     gameState.ghost[type].prevIndex = 0;
     gameState.ghost[type].nextIndex = 0;
     gameState.ghost[type].interpolation = 0;
@@ -1671,9 +1874,6 @@ function resetGame() {
   gameState.camera.lastY = gameState.camera.y;
   gameState.camera.lastZoom = gameState.camera.zoom;
 
-  // Reset cached data structures for performance
-  clearScreenVertexCache();
-  
   // Rebuild spatial data structures
   buildMapLineGrid();
   initPickupGrid();
@@ -1689,8 +1889,11 @@ document.getElementById('resetBtn').addEventListener('click', () => {
 // Resize the game canvas to fit the window
 function resizeGameCanvas() {
   const canvas = document.getElementById('gameCanvas');
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const w = window.innerWidth, h = window.innerHeight;
+  // Writing to canvas.width/height clears the canvas and rebuilds its backing
+  // store — very expensive. Only touch it when the size actually changed.
+  if (canvas.width !== w) canvas.width = w;
+  if (canvas.height !== h) canvas.height = h;
 }
 
 // Start the game animation with optimized frame timing
@@ -1728,20 +1931,22 @@ const performanceMetrics = {
 
 // Request animation frame with timing optimization
 function updateFrame(timestamp) {
-  // Resize canvas to fit window
-  resizeGameCanvas();
-  
   // Performance tracking start
   performanceMetrics.frameStartTime = performance.now();
   
   if(!lastTime) lastTime=timestamp;
   const dt=(timestamp - lastTime)/1000;
   lastTime=timestamp;
-  const clampedDt=Math.min(dt, 0.1);
+  let clampedDt=Math.min(dt, 0.1);
+  // During TAS playback, lock dt to the search's fixed timestep so playback
+  // matches the simulated trajectory exactly regardless of render fps.
+  if (gameState.tas && gameState.tas.playing) clampedDt = 1/60;
 
   const s=gameState.ship;
   // update gameTime
-  gameState.gameTime += clampedDt;
+  if (!(gameState.tas && gameState.tas.paused && !gameState.tas.playing)) {
+    gameState.gameTime += clampedDt;
+  }
   
   // Record ship position for ghost replay (adaptive frequency)
   // Our improved recordGhostPosition has internal logic for determining
@@ -1756,7 +1961,12 @@ function updateFrame(timestamp) {
     document.getElementById('timer').classList.add('fadeOut');
   }
 
-  if(!s.exploded) {
+  // TAS playback driver — overrides inputs while playing recorded action sequence
+  if (gameState.tas && gameState.tas.playing) {
+    tasTickPlayback(clampedDt);
+  }
+
+  if(!s.exploded && !(gameState.tas && gameState.tas.paused && !gameState.tas.playing)) {
     // Movement physics
     if(s.rotatingLeft)  s.rotation-= ROTATION_SPEED*clampedDt;
     if(s.rotatingRight) s.rotation+= ROTATION_SPEED*clampedDt;
@@ -1823,11 +2033,11 @@ function updateFrame(timestamp) {
   // Update both ghost ships
   function updateGhostShip() {
     if (!gameState.ghost.enabled) return;
-    updateGhostInterpolation(gameState.ghost.human);
-    updateGhostInterpolation(gameState.ghost.ai);
-    updateGhostInterpolation(gameState.ghost.goofy);
-    updateGhostInterpolation(gameState.ghost.eager);
-    updateGhostInterpolation(gameState.ghost.rewind);
+    if (ghostTypeEnabled.human)   updateGhostInterpolation(gameState.ghost.human);
+    if (ghostTypeEnabled.ai)      updateGhostInterpolation(gameState.ghost.ai);
+    if (ghostTypeEnabled.goofy)   updateGhostInterpolation(gameState.ghost.goofy);
+    if (ghostTypeEnabled.eager)   updateGhostInterpolation(gameState.ghost.eager);
+    if (ghostTypeEnabled.perfect) updateGhostInterpolation(gameState.ghost.perfect);
   }
 
   FD = DD * ED;
@@ -2242,6 +2452,21 @@ function shipCollisionCheck() {
 ////////////////////////////////////////////////////////////////////////////////
 // Flag to control rendering expensive debug information
 let showPerformanceInfo = false;
+let starfieldEnabled = localStorage.getItem('starfieldEnabled') !== '0';
+
+function setStarfieldEnabled(enabled) {
+  starfieldEnabled = enabled;
+  localStorage.setItem('starfieldEnabled', enabled ? '1' : '0');
+  const btn = document.getElementById('starsToggle');
+  if (btn) {
+    btn.textContent = '';
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-star';
+    btn.appendChild(icon);
+    btn.appendChild(document.createTextNode(` Stars: ${enabled ? 'On' : 'Off'}`));
+    btn.classList.toggle('active', enabled);
+  }
+}
 
 // Optimized render function
 function drawAll() {
@@ -2258,29 +2483,26 @@ function drawAll() {
   
   // Draw ghost ships if enabled
   if (gameState.ghost.enabled) {
-    if (gameState.ghost.human.replayData && gameState.ghost.human.replayData.length > 0) {
+    if (ghostTypeEnabled.human && gameState.ghost.human.replayData && gameState.ghost.human.replayData.length > 0) {
       drawGhostShipWithColor(gameState.ghost.human, "rgba(0, 100, 255, 0.5)", null);
     }
-    if (gameState.ghost.ai.replayData && gameState.ghost.ai.replayData.length > 0) {
-      // Neon magenta AI ghost with multi-pass glow
+    if (ghostTypeEnabled.ai && gameState.ghost.ai.replayData && gameState.ghost.ai.replayData.length > 0) {
       drawGhostShipWithColor(gameState.ghost.ai, "#ff00ff", "#ff00ff");
     }
-    if (gameState.ghost.goofy.replayData && gameState.ghost.goofy.replayData.length > 0) {
-      // Neon lime-green goofy ghost with multi-pass glow
+    if (ghostTypeEnabled.goofy && gameState.ghost.goofy.replayData && gameState.ghost.goofy.replayData.length > 0) {
       drawGhostShipWithColor(gameState.ghost.goofy, "#39ff14", "#39ff14");
     }
-    if (gameState.ghost.eager.replayData && gameState.ghost.eager.replayData.length > 0) {
-      // Neon cyan eager ghost with multi-pass glow
+    if (ghostTypeEnabled.eager && gameState.ghost.eager.replayData && gameState.ghost.eager.replayData.length > 0) {
       drawGhostShipWithColor(gameState.ghost.eager, "#00e5ff", "#00e5ff");
     }
-    if (gameState.ghost.rewind.replayData && gameState.ghost.rewind.replayData.length > 0) {
-      // Neon orange rewind ghost with multi-pass glow
-      drawGhostShipWithColor(gameState.ghost.rewind, "#ff8800", "#ff8800");
+    if (ghostTypeEnabled.perfect && gameState.ghost.perfect.replayData && gameState.ghost.perfect.replayData.length > 0) {
+      drawGhostShipWithColor(gameState.ghost.perfect, "#ffd700", "#ffd700");
     }
   }
   
   drawShipParticles();
   drawShip();
+  if (gameState.tas) drawTasOverlay();
   drawMiniMap();
 
   // Subtle screen-edge vignette for depth
@@ -2376,42 +2598,39 @@ function drawGhostShipWithColor(ghostObj, strokeColor, glowColor) {
   }
 
   if (glowColor) {
-    // Neon pass: wide outer glow → tight inner glow → bright core
+    // Faux-neon glow via additive multi-stroke. Using ctx.shadowBlur here forces
+    // the software renderer in most browsers and costs ~5-10ms per ghost per
+    // frame; layered 'lighter' strokes look nearly identical and are GPU-fast.
     const prevComposite = ctx.globalCompositeOperation;
     ctx.globalCompositeOperation = 'lighter';
-    ctx.shadowColor = glowColor;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
-    // Outer halo
-    ctx.shadowBlur = 24;
     ctx.strokeStyle = glowColor;
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 7;
+    ctx.globalAlpha = 0.22;
     strokeShip();
 
-    // Mid glow
-    ctx.shadowBlur = 12;
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 3.5;
+    ctx.globalAlpha = 0.55;
     strokeShip();
 
-    // Bright core
-    ctx.shadowBlur = 6;
+    ctx.globalAlpha = 1;
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.2;
     strokeShip();
 
     if (ghostThrusting) {
-      ctx.shadowBlur = 18;
       ctx.strokeStyle = glowColor;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 5;
+      ctx.globalAlpha = 0.45;
       strokeThruster();
-      ctx.shadowBlur = 8;
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1;
       strokeThruster();
     }
 
-    // Reset
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
     ctx.globalCompositeOperation = prevComposite;
   } else {
     ctx.strokeStyle = strokeColor;
@@ -2446,13 +2665,9 @@ function updateScreenBounds() {
   mapScreenBounds.maxY = canvas.height + mapScreenBounds.margin;
 }
 
-// Cache for transformed vertices - avoids repeated calculations
-const screenVertexCache = new Map();
-
-// Clear vertex cache when camera changes
-function clearScreenVertexCache() {
-  screenVertexCache.clear();
-}
+// Scratch buffers for per-frame projected map vertices. Grown on demand.
+let _vsx = new Float32Array(0);
+let _vsy = new Float32Array(0);
 
 // ── Visual FX helpers ────────────────────────────────────────────────────────
 
@@ -2483,18 +2698,25 @@ function ensureStarfield() {
   });
 }
 
+let _bgGradCache = null;
+let _bgGradW = 0, _bgGradH = 0;
 function drawSpaceBackground() {
-  // Subtle radial gradient: deep blue-black centre fading to pure black
+  // Subtle radial gradient: deep blue-black centre fading to pure black.
+  // Gradient is canvas-size-dependent only — cache between frames.
   const W = canvas.width, H = canvas.height;
-  const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.1, W*0.5, H*0.5, Math.max(W,H)*0.75);
-  g.addColorStop(0, '#070d18');
-  g.addColorStop(0.6, '#03060c');
-  g.addColorStop(1, '#000000');
-  ctx.fillStyle = g;
+  if (!_bgGradCache || _bgGradW !== W || _bgGradH !== H) {
+    const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.1, W*0.5, H*0.5, Math.max(W,H)*0.75);
+    g.addColorStop(0, '#070d18');
+    g.addColorStop(0.6, '#03060c');
+    g.addColorStop(1, '#000000');
+    _bgGradCache = g; _bgGradW = W; _bgGradH = H;
+  }
+  ctx.fillStyle = _bgGradCache;
   ctx.fillRect(0, 0, W, H);
 }
 
 function drawStarfield() {
+  if (!starfieldEnabled) return;
   ensureStarfield();
   const cam = gameState.camera;
   const W = canvas.width, H = canvas.height;
@@ -2513,12 +2735,17 @@ function drawStarfield() {
   }
 }
 
+let _vigGradCache = null;
+let _vigGradW = 0, _vigGradH = 0;
 function drawVignette() {
   const W = canvas.width, H = canvas.height;
-  const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.35, W*0.5, H*0.5, Math.max(W,H)*0.7);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(1, 'rgba(0,0,0,0.55)');
-  ctx.fillStyle = g;
+  if (!_vigGradCache || _vigGradW !== W || _vigGradH !== H) {
+    const g = ctx.createRadialGradient(W*0.5, H*0.5, Math.min(W,H)*0.35, W*0.5, H*0.5, Math.max(W,H)*0.7);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.55)');
+    _vigGradCache = g; _vigGradW = W; _vigGradH = H;
+  }
+  ctx.fillStyle = _vigGradCache;
   ctx.fillRect(0, 0, W, H);
 }
 
@@ -2534,15 +2761,22 @@ function drawMap() {
   // Update screen bounds if needed
   updateScreenBounds();
 
-  // Clear vertex cache if camera changed
-  if (gameState.camera.lastX !== gameState.camera.x ||
-      gameState.camera.lastY !== gameState.camera.y ||
-      gameState.camera.lastZoom !== gameState.camera.zoom) {
-    clearScreenVertexCache();
-    gameState.camera.lastX = gameState.camera.x;
-    gameState.camera.lastY = gameState.camera.y;
-    gameState.camera.lastZoom = gameState.camera.zoom;
+  // Transform all vertices once, then use by index. Since camera moves every
+  // frame, a per-frame Map-based cache adds hash overhead without saving work;
+  // a flat array per frame is faster.
+  const vCount = vertices.length;
+  const vsx = _vsx.length >= vCount ? _vsx : (_vsx = new Float32Array(vCount));
+  const vsy = _vsy.length >= vCount ? _vsy : (_vsy = new Float32Array(vCount));
+  const camX = gameState.camera.x, camY = gameState.camera.y, zoom = gameState.camera.zoom;
+  const halfW = canvas.width * 0.5, halfH = canvas.height * 0.5;
+  for (let i = 0; i < vCount; i++) {
+    const v = vertices[i];
+    vsx[i] = (v.x - camX) * zoom + halfW;
+    vsy[i] = (v.y - camY) * zoom + halfH;
   }
+
+  const minX = mapScreenBounds.minX, maxX = mapScreenBounds.maxX;
+  const minY = mapScreenBounds.minY, maxY = mapScreenBounds.maxY;
 
   // Build a single Path2D with all visible segments — reused for the glow passes.
   const path = new Path2D();
@@ -2551,32 +2785,18 @@ function drawMap() {
     const line = lines[i];
     const v1Idx = line[0];
     const v2Idx = line[1];
+    const x1 = vsx[v1Idx], y1 = vsy[v1Idx];
+    const x2 = vsx[v2Idx], y2 = vsy[v2Idx];
 
-    let s1, s2;
-    if (screenVertexCache.has(v1Idx)) {
-      s1 = screenVertexCache.get(v1Idx);
-    } else {
-      const v1 = vertices[v1Idx];
-      s1 = worldToScreen(v1.x, v1.y);
-      screenVertexCache.set(v1Idx, s1);
-    }
-    if (screenVertexCache.has(v2Idx)) {
-      s2 = screenVertexCache.get(v2Idx);
-    } else {
-      const v2 = vertices[v2Idx];
-      s2 = worldToScreen(v2.x, v2.y);
-      screenVertexCache.set(v2Idx, s2);
-    }
-
-    if ((s1.x < mapScreenBounds.minX && s2.x < mapScreenBounds.minX) ||
-        (s1.x > mapScreenBounds.maxX && s2.x > mapScreenBounds.maxX) ||
-        (s1.y < mapScreenBounds.minY && s2.y < mapScreenBounds.minY) ||
-        (s1.y > mapScreenBounds.maxY && s2.y > mapScreenBounds.maxY)) {
+    if ((x1 < minX && x2 < minX) ||
+        (x1 > maxX && x2 > maxX) ||
+        (y1 < minY && y2 < minY) ||
+        (y1 > maxY && y2 > maxY)) {
       continue;
     }
 
-    path.moveTo(s1.x, s1.y);
-    path.lineTo(s2.x, s2.y);
+    path.moveTo(x1, y1);
+    path.lineTo(x2, y2);
   }
 
   // Multi-pass neon stroke (additive) — outer halo → mid glow → bright core.
@@ -3054,6 +3274,8 @@ window.addEventListener('keydown', e=>{
   } else if(e.key==='p') {
     // Toggle performance metrics
     showPerformanceInfo = !showPerformanceInfo;
+  } else if(e.key==='s') {
+    setStarfieldEnabled(!starfieldEnabled);
   }
 });
 
@@ -3140,9 +3362,583 @@ function init() {
   console.log("  R: Reset level");
   console.log("  G: Toggle ghost ship");
   console.log("  P: Toggle performance display");
+  console.log("  S: Toggle background stars");
 }
 
 init();
+
+// Sync starfield button to persisted state
+setStarfieldEnabled(starfieldEnabled);
+
+document.getElementById('starsToggle').addEventListener('click', () => {
+  setStarfieldEnabled(!starfieldEnabled);
+});
+
+// Per-type ghost filter dropdown — restore saved state, hook checkboxes,
+// open/close panel, and dismiss on outside click.
+loadGhostTypeFilters();
+(function initGhostFilterPanel() {
+  const panel = document.getElementById('ghostFilterPanel');
+  const btn = document.getElementById('ghostFilterBtn');
+  if (!panel || !btn) return;
+  panel.querySelectorAll('input[type=checkbox][data-ghost]').forEach(cb => {
+    const key = cb.getAttribute('data-ghost');
+    cb.checked = ghostTypeEnabled[key] !== false;
+    cb.addEventListener('change', () => {
+      ghostTypeEnabled[key] = cb.checked;
+      saveGhostTypeFilters();
+    });
+  });
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    panel.classList.toggle('open');
+  });
+  document.addEventListener('click', (e) => {
+    if (!panel.classList.contains('open')) return;
+    if (panel.contains(e.target) || btn.contains(e.target)) return;
+    panel.classList.remove('open');
+  });
+})();
+
+////////////////////////////////////////////////////////////////////////////////
+// TAS Solver — beam search over physics with target ship configuration
+////////////////////////////////////////////////////////////////////////////////
+const TAS_ACTIONS = [
+  // [thrust, rotL, rotR]
+  [false, false, false],
+  [true,  false, false],
+  [false, true,  false],
+  [true,  true,  false],
+  [false, false, true],
+  [true,  false, true],
+];
+const TAS_ACTION_NAMES = ['coast', 'thrust', 'L', 'L+thrust', 'R', 'R+thrust'];
+const TAS_DT = 1/60;
+
+function tasSetStatus(msg) {
+  const el = document.getElementById('tasStatus');
+  if (el) el.textContent = msg;
+}
+
+function tasFormatState(s) {
+  if (!s) return 'none';
+  return `(${s.x.toFixed(0)}, ${s.y.toFixed(0)}) v=(${s.vx.toFixed(0)}, ${s.vy.toFixed(0)}) r=${s.rotation.toFixed(2)}`;
+}
+
+function tasUpdateLabels() {
+  document.getElementById('tasStartLbl').textContent = tasFormatState(gameState.tas.start);
+  document.getElementById('tasTargetLbl').textContent = tasFormatState(gameState.tas.target);
+}
+
+// Simulate `frames` of physics from `state` under a constant action.
+// Mutates gameState.ship temporarily (for collision check) but restores it.
+// Returns the new state, or null on collision.
+function tasSimulate(state, actionIdx, frames) {
+  const [thrust, rotL, rotR] = TAS_ACTIONS[actionIdx];
+  let x = state.x, y = state.y, vx = state.vx, vy = state.vy, rotation = state.rotation;
+  const sv = gameState.ship;
+  const saved = { x: sv.x, y: sv.y, vx: sv.vx, vy: sv.vy, rotation: sv.rotation };
+  const savedSkip = (typeof collisionSkipFrames !== 'undefined') ? collisionSkipFrames : 0;
+  let collided = false;
+  for (let i = 0; i < frames; i++) {
+    if (rotL) rotation -= ROTATION_SPEED * TAS_DT;
+    if (rotR) rotation += ROTATION_SPEED * TAS_DT;
+    if (thrust) {
+      const a = rotation - Math.PI * 0.5;
+      vx += THRUST_POWER * Math.cos(a) * TAS_DT;
+      vy += THRUST_POWER * Math.sin(a) * TAS_DT;
+    }
+    vy += GRAVITY * TAS_DT;
+    x += vx * TAS_DT;
+    y += vy * TAS_DT;
+    sv.x = x; sv.y = y; sv.rotation = rotation; sv.vx = vx; sv.vy = vy;
+    if (shipCollisionCheck()) { collided = true; break; }
+  }
+  sv.x = saved.x; sv.y = saved.y; sv.vx = saved.vx; sv.vy = saved.vy; sv.rotation = saved.rotation;
+  if (typeof collisionSkipFrames !== 'undefined') collisionSkipFrames = savedSkip;
+  if (collided) return null;
+  return { x, y, vx, vy, rotation };
+}
+
+function tasGoalScore(s, target, matchVel) {
+  const dx = target.x - s.x, dy = target.y - s.y;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  const posDist = Math.hypot(dx, dy);
+  const speed = Math.hypot(s.vx, s.vy);
+
+  // Per-axis brake-feasibility: under bang-bang control with effective
+  // per-axis deceleration `aEff`, the maximum speed that can still be braked
+  // to zero in remaining distance D is sqrt(2*aEff*D). Speed beyond this
+  // along that axis means we will overshoot — penalize hard. Crucially, when
+  // remaining vertical distance is large, large vy is allowed; when dy
+  // shrinks, vy must shrink too. This decouples axes and naturally produces
+  // L-shaped trajectories: gain horizontal speed first while dy is large,
+  // then transition to vertical motion as dx → 0.
+  const aEff = 250; // effective per-axis decel (slightly less than THRUST_POWER to leave gravity headroom)
+  const vMaxX = Math.sqrt(2 * aEff * Math.max(adx, 5));
+  const vMaxY = Math.sqrt(2 * aEff * Math.max(ady, 5));
+  const excessX = Math.max(0, Math.abs(s.vx) - vMaxX);
+  const excessY = Math.max(0, Math.abs(s.vy) - vMaxY);
+  const overspeed = (excessX + excessY) * 1.5;
+
+  // Wrong-direction penalty: lightly discourages purely backward motion, but
+  // small weight because in mazes the ship often has to move away from target
+  // temporarily to navigate around walls.
+  let wrongDir = 0;
+  if (speed > 1 && posDist > 1) {
+    const dot = -(s.vx * dx + s.vy * dy) / (posDist * speed);
+    if (dot > 0) wrongDir = dot * speed * 0.15;
+  }
+
+  // Light alignment bonus only at long range, phases out fast — kept just to
+  // break ties between "drifting toward" and "drifting parallel" when far.
+  let alignBonus = 0;
+  if (posDist > 200 && speed > 1) {
+    const dot = (s.vx * dx + s.vy * dy) / (posDist * speed);
+    alignBonus = Math.max(0, dot) * Math.min(speed, 300) * 0.05;
+  }
+
+  let score = posDist + overspeed + wrongDir - alignBonus;
+  if (matchVel) {
+    const dvx = target.vx - s.vx, dvy = target.vy - s.vy;
+    score += Math.hypot(dvx, dvy) * 0.5;
+  }
+  return score;
+}
+
+function tasReconstruct(node) {
+  const actions = [];
+  const states = [];
+  let cur = node;
+  while (cur && cur.parent) {
+    actions.push(cur.action);
+    states.push(cur.state);
+    cur = cur.parent;
+  }
+  actions.reverse();
+  states.reverse();
+  return { actions, states };
+}
+
+// Active search handle so we can cancel and avoid overlapping searches.
+let tasSearchCancel = null;
+
+function tasSolve() {
+  const tas = gameState.tas;
+  if (!tas.start || !tas.target) {
+    tasSetStatus('set both start and target');
+    return;
+  }
+  if (tasSearchCancel) { tasSearchCancel(); tasSearchCancel = null; }
+
+  const target = {
+    x: tas.target.x,
+    y: tas.target.y,
+    vx: parseFloat(document.getElementById('tasTvx').value) || 0,
+    vy: parseFloat(document.getElementById('tasTvy').value) || 0,
+    rotation: parseFloat(document.getElementById('tasTrot').value) || 0,
+  };
+  const matchVel = document.getElementById('tasMatchVel').checked;
+  const posTol = parseFloat(document.getElementById('tasPosTol').value) || 25;
+  const velTol = parseFloat(document.getElementById('tasVelTol').value) || 60;
+  const framesPerAction = Math.max(1, parseInt(document.getElementById('tasFrames').value) || 6);
+  const beamWidth = Math.max(10, parseInt(document.getElementById('tasBeam').value) || 200);
+  const maxDepth = Math.max(5, parseInt(document.getElementById('tasDepth').value) || 120);
+
+  const cancelBtn = document.getElementById('tasCancel');
+  const solveBtn = document.getElementById('tasSolve');
+  solveBtn.style.display = 'none';
+  cancelBtn.style.display = '';
+
+  let cancelled = false;
+  tasSearchCancel = () => { cancelled = true; };
+
+  const t0 = performance.now();
+  let bestNode = null, bestScore = Infinity, bestSolved = null;
+
+  // One pass of beam search across `depth` levels with diversity injection.
+  // `seedNode` lets a retry resume from a prior attempt's best frontier node
+  // (action chain continues from there) instead of restarting from start.
+  function runBeamAsync(width, depth, attempt, seedNode, onDone) {
+    const root = seedNode || { state: tas.start, parent: null, action: -1, depth: 0 };
+    let beam = [root];
+    let localBest = root;
+    let localBestScore = tasGoalScore(root.state, target, matchVel);
+    let solved = null;
+    let d = 0;
+    // Different attempts get different random seeds via Math.random; the
+    // diversity slots ensure each pass explores differently.
+    const tickSize = 8; // expand this many depth levels per chunk
+
+    // Cost per macro-action used for A*-style beam ordering. Tuned so a 50-step
+    // detour costs more than the alignment bonus can offset — otherwise the
+    // beam keeps long aligned trajectories alive purely for the bonus.
+    const STEP_COST = 25;
+
+    let exhausted = false; // true when no children were generated this level
+    function step() {
+      if (cancelled) return onDone({ solved: null, bestNode: localBest, bestScore: localBestScore });
+      const stopAt = Math.min(d + tickSize, depth);
+      for (; d < stopAt; d++) {
+        const candidates = [];
+        for (const node of beam) {
+          for (let a = 0; a < TAS_ACTIONS.length; a++) {
+            const next = tasSimulate(node.state, a, framesPerAction);
+            if (!next) continue;
+            const child = { state: next, parent: node, action: a, depth: d + 1 };
+            const dx = target.x - next.x, dy = target.y - next.y;
+            const posDist = Math.hypot(dx, dy);
+            const dvx = target.vx - next.vx, dvy = target.vy - next.vy;
+            const velDist = Math.hypot(dvx, dvy);
+            const h = tasGoalScore(next, target, matchVel);
+            // Track best-so-far by pure goal proximity (h only) so we don't
+            // forget closer-but-longer trajectories. Use g+h for beam ranking.
+            if (h < localBestScore) { localBestScore = h; localBest = child; }
+            const reached = posDist <= posTol && (!matchVel || velDist <= velTol);
+            if (reached) { solved = child; break; }
+            const f = h + child.depth * STEP_COST;
+            candidates.push({ child, f, posDist });
+          }
+          if (solved) break;
+        }
+        if (solved) break;
+        if (candidates.length === 0) { exhausted = true; break; }
+        candidates.sort((a, b) => a.f - b.f);
+        const close = candidates[0].posDist < 100;
+        const posBucket = close ? 5 : 15;
+        const velBucket = close ? 10 : 30;
+        const rotBucket = close ? 8 : 4;
+        const seen = new Set();
+        // Reserve 20% of the beam for random samples drawn from the dedup'd
+        // frontier — this fights collapse into one local-min basin.
+        const exploitSlots = Math.floor(width * 0.8);
+        const exploreSlots = width - exploitSlots;
+        const exploit = [];
+        const pool = [];
+        for (const c of candidates) {
+          const s = c.child.state;
+          const key = `${Math.round(s.x / posBucket)},${Math.round(s.y / posBucket)},${Math.round(s.vx / velBucket)},${Math.round(s.vy / velBucket)},${Math.round(s.rotation * rotBucket)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (exploit.length < exploitSlots) exploit.push(c.child);
+          else pool.push(c.child);
+        }
+        const explore = [];
+        for (let i = 0; i < exploreSlots && pool.length > 0; i++) {
+          const idx = Math.floor(Math.random() * pool.length);
+          explore.push(pool.splice(idx, 1)[0]);
+        }
+        beam = exploit.concat(explore);
+      }
+      tasSetStatus(`attempt ${attempt}: depth ${d}/${depth}, best=${localBestScore.toFixed(1)}`);
+      // Live preview of the current best trajectory so the user sees progress.
+      const liveBest = tasReconstruct(solved || localBest);
+      liveBest.framesPerAction = framesPerAction;
+      liveBest.dt = TAS_DT;
+      liveBest.target = target;
+      liveBest.matchVel = matchVel;
+      tas.solution = liveBest;
+      if (solved || d >= depth || beam.length === 0 || exhausted || cancelled) {
+        onDone({ solved, bestNode: localBest, bestScore: localBestScore });
+      } else {
+        setTimeout(step, 0);
+      }
+    }
+    step();
+  }
+
+  function finish(solvedNode, finalBest, finalScore) {
+    const elapsed = performance.now() - t0;
+    const result = tasReconstruct(solvedNode || finalBest);
+    result.framesPerAction = framesPerAction;
+    result.dt = TAS_DT;
+    result.target = target;
+    result.matchVel = matchVel;
+    tas.solution = result;
+    cancelBtn.style.display = 'none';
+    solveBtn.style.display = '';
+    tasSearchCancel = null;
+    if (cancelled) {
+      tasSetStatus(`cancelled; best dist=${finalScore.toFixed(1)} (${elapsed.toFixed(0)}ms)`);
+    } else if (solvedNode) {
+      tasSetStatus(`solved in ${result.actions.length} steps (${elapsed.toFixed(0)}ms)`);
+    } else {
+      tasSetStatus(`no exact solution; best dist=${finalScore.toFixed(1)} (${elapsed.toFixed(0)}ms)`);
+    }
+  }
+
+  let attempt = 0;
+  let w = beamWidth, dpt = maxDepth;
+  let seedForNext = null; // null on first attempt; later retries seed from previous bestNode
+  function tryNext() {
+    if (cancelled) return finish(bestSolved, bestNode, bestScore);
+    attempt++;
+    runBeamAsync(w, dpt, attempt, seedForNext, (r) => {
+      if (!bestNode || r.bestScore < bestScore) {
+        bestNode = r.bestNode; bestScore = r.bestScore;
+      }
+      if (r.solved) bestSolved = r.solved;
+      if (r.solved || cancelled || attempt >= 5) {
+        finish(bestSolved, bestNode, bestScore);
+        return;
+      }
+      w = Math.min(Math.floor(w * 1.7), 2400);
+      dpt = Math.min(dpt + 60, 500);
+      // Seed next attempt from current bestNode so progress accumulates across
+      // retries — lets the search grind past local minima where one attempt
+      // gets stuck (common in maze-like geometry).
+      seedForNext = r.bestNode;
+      setTimeout(tryNext, 0);
+    });
+  }
+  tryNext();
+}
+
+function tasPlay() {
+  const tas = gameState.tas;
+  if (!tas.solution || !tas.solution.actions.length) {
+    tasSetStatus('no solution to play');
+    return;
+  }
+  // Snap ship to start state.
+  const s = gameState.ship;
+  s.x = tas.start.x; s.y = tas.start.y;
+  s.vx = tas.start.vx; s.vy = tas.start.vy;
+  s.rotation = tas.start.rotation;
+  s.thrusting = false; s.rotatingLeft = false; s.rotatingRight = false;
+  s.exploded = false;
+  tas.playing = true;
+  tas.playIndex = 0;
+  tas.playFrame = 0;
+  tasSetStatus('playing...');
+}
+
+// Drives ship inputs from solution. Called from updateFrame before physics runs.
+function tasTickPlayback(dt) {
+  const tas = gameState.tas;
+  const sol = tas.solution;
+  const s = gameState.ship;
+  if (!sol || tas.playIndex >= sol.actions.length) {
+    tas.playing = false;
+    s.thrusting = false; s.rotatingLeft = false; s.rotatingRight = false;
+    tasSetStatus('playback done');
+    return;
+  }
+  const [thrust, rotL, rotR] = TAS_ACTIONS[sol.actions[tas.playIndex]];
+  s.thrusting = thrust; s.rotatingLeft = rotL; s.rotatingRight = rotR;
+  // Advance one search-frame at fixed TAS_DT per real-time frame regardless of dt.
+  // (Search used 1/60s frames; we drive one search-frame per render frame.)
+  tas.playFrame++;
+  if (tas.playFrame >= sol.framesPerAction) {
+    tas.playFrame = 0;
+    tas.playIndex++;
+  }
+}
+
+function tasClear() {
+  const tas = gameState.tas;
+  tas.start = null;
+  tas.target = null;
+  tas.solution = null;
+  tas.playing = false;
+  tas.pickMode = null;
+  document.body.classList.remove('tas-picking');
+  tasUpdateLabels();
+  tasSetStatus('cleared');
+}
+
+function tasCaptureShipState() {
+  const s = gameState.ship;
+  return { x: s.x, y: s.y, vx: s.vx, vy: s.vy, rotation: s.rotation };
+}
+
+function tasScreenToWorld(sx, sy) {
+  const cam = gameState.camera;
+  const wx = (sx - canvas.width * 0.5) / cam.zoom + cam.x;
+  const wy = (sy - canvas.height * 0.5) / cam.zoom + cam.y;
+  return { x: wx, y: wy };
+}
+
+function drawTasMarker(state, color, label) {
+  const p = worldToScreen(state.x, state.y);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 10;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Velocity arrow
+  if (state.vx || state.vy) {
+    const ex = p.x + state.vx * 0.15 * gameState.camera.zoom;
+    const ey = p.y + state.vy * 0.15 * gameState.camera.zoom;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+  }
+  // Heading line
+  const hx = p.x + Math.cos(state.rotation - Math.PI * 0.5) * 18;
+  const hy = p.y + Math.sin(state.rotation - Math.PI * 0.5) * 18;
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+  ctx.font = '11px "Share Tech Mono", monospace';
+  ctx.fillText(label, p.x + 14, p.y - 10);
+  ctx.restore();
+}
+
+function drawTasOverlay() {
+  const tas = gameState.tas;
+  if (!tas.enabled) return;
+  if (tas.start) drawTasMarker(tas.start, '#00FFFF', 'START');
+  if (tas.target) {
+    // Use configured target velocity/rotation for visual.
+    const tvx = parseFloat(document.getElementById('tasTvx')?.value) || 0;
+    const tvy = parseFloat(document.getElementById('tasTvy')?.value) || 0;
+    const trot = parseFloat(document.getElementById('tasTrot')?.value) || 0;
+    drawTasMarker({ x: tas.target.x, y: tas.target.y, vx: tvx, vy: tvy, rotation: trot }, '#FF00FF', 'TARGET');
+  }
+  if (tas.solution && tas.solution.states.length) {
+    ctx.save();
+    ctx.strokeStyle = '#FFFF00';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#FFFF00';
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    const start = tas.start;
+    const p0 = worldToScreen(start.x, start.y);
+    ctx.moveTo(p0.x, p0.y);
+    for (const st of tas.solution.states) {
+      const p = worldToScreen(st.x, st.y);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// Wire up TAS UI
+(function initTasUI() {
+  const toggle = document.getElementById('tasToggle');
+  const panel = document.getElementById('tasPanel');
+  const setActive = (on) => {
+    gameState.tas.enabled = on;
+    gameState.tas.paused = on;
+    panel.style.display = on ? 'block' : 'none';
+    toggle.classList.toggle('active', on);
+    toggle.innerHTML = on
+      ? '<i class="fas fa-route"></i> TAS: On'
+      : '<i class="fas fa-route"></i> TAS: Off';
+    document.body.classList.toggle('tas-active', on);
+    if (on) {
+      tasSetStatus('drag to pan, wheel to zoom');
+    } else {
+      gameState.tas.pickMode = null;
+      document.body.classList.remove('tas-picking');
+      gameState.tas.playing = false;
+    }
+  };
+  toggle.addEventListener('click', () => setActive(!gameState.tas.enabled));
+
+  document.getElementById('tasSetStart').addEventListener('click', () => {
+    gameState.tas.pickMode = 'start';
+    document.body.classList.add('tas-picking');
+    tasSetStatus('click on map to set START');
+  });
+  document.getElementById('tasSetTarget').addEventListener('click', () => {
+    gameState.tas.pickMode = 'target';
+    document.body.classList.add('tas-picking');
+    tasSetStatus('click on map to set TARGET');
+  });
+  document.getElementById('tasUseShip').addEventListener('click', () => {
+    gameState.tas.start = tasCaptureShipState();
+    tasUpdateLabels();
+    tasSetStatus('start = current ship state');
+  });
+  document.getElementById('tasSolve').addEventListener('click', tasSolve);
+  document.getElementById('tasCancel').addEventListener('click', () => {
+    if (tasSearchCancel) tasSearchCancel();
+  });
+  document.getElementById('tasPlay').addEventListener('click', tasPlay);
+  document.getElementById('tasClear').addEventListener('click', tasClear);
+
+  canvas.addEventListener('click', (e) => {
+    if (canvas._tasSuppressClick) return;
+    if (!gameState.tas.enabled || !gameState.tas.pickMode) return;
+    const rect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const sy = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const w = tasScreenToWorld(sx, sy);
+    if (gameState.tas.pickMode === 'start') {
+      // Default to zero velocity & current ship rotation.
+      gameState.tas.start = { x: w.x, y: w.y, vx: 0, vy: 0, rotation: gameState.ship.rotation };
+    } else if (gameState.tas.pickMode === 'target') {
+      gameState.tas.target = { x: w.x, y: w.y, vx: 0, vy: 0, rotation: 0 };
+    }
+    gameState.tas.pickMode = null;
+    document.body.classList.remove('tas-picking');
+    tasUpdateLabels();
+    tasSetStatus('point set');
+  });
+
+  // Pan + zoom while TAS is on (camera stays where the user puts it because
+  // updateCamera() is gated by the same paused flag).
+  let tasDrag = null;
+  canvas.addEventListener('mousedown', (e) => {
+    if (!gameState.tas.enabled) return;
+    if (gameState.tas.pickMode) return;
+    if (e.button !== 0) return;
+    tasDrag = {
+      sx: e.clientX, sy: e.clientY,
+      camX: gameState.camera.x, camY: gameState.camera.y,
+      moved: false,
+    };
+    document.body.style.cursor = 'grabbing';
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!tasDrag) return;
+    const dxs = e.clientX - tasDrag.sx;
+    const dys = e.clientY - tasDrag.sy;
+    if (Math.hypot(dxs, dys) > 3) tasDrag.moved = true;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const z = gameState.camera.zoom || 1;
+    gameState.camera.x = tasDrag.camX - dxs * scaleX / z;
+    gameState.camera.y = tasDrag.camY - dys * scaleY / z;
+  });
+  window.addEventListener('mouseup', () => {
+    if (!tasDrag) return;
+    document.body.style.cursor = '';
+    if (tasDrag.moved) {
+      canvas._tasSuppressClick = true;
+      setTimeout(() => { canvas._tasSuppressClick = false; }, 0);
+    }
+    tasDrag = null;
+  });
+  canvas.addEventListener('wheel', (e) => {
+    if (!gameState.tas.enabled) return;
+    e.preventDefault();
+    const cam = gameState.camera;
+    // Zoom around the cursor so the world point under the mouse stays fixed.
+    const rect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const sy = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const before = tasScreenToWorld(sx, sy);
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    cam.zoom = Math.max(0.1, Math.min(5, cam.zoom * factor));
+    const after = tasScreenToWorld(sx, sy);
+    cam.x += before.x - after.x;
+    cam.y += before.y - after.y;
+  }, { passive: false });
+})();
 
 // Toggle ghost on button click - update button text and icon
 document.getElementById('ghostToggle').addEventListener('click', function() {

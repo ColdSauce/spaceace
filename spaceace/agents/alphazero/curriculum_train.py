@@ -1,9 +1,9 @@
 """AlphaZero curriculum training — PPO-style pickup-variant progression.
 
 For each base level, trains on base -> +1 -> +2 -> +3 pickup variants before
-advancing. Each stage must hit `advance_win_rate` after at least `min_iters`
-self-play iterations to advance. Shares curriculum construction with PPO
-(`spaceace.training.curriculum.build_curriculum`).
+advancing. Each stage must hit `advance_win_rate` on the selected advancement
+metric after at least `min_iters` self-play iterations. Shares curriculum
+construction with PPO (`spaceace.training.curriculum.build_curriculum`).
 """
 
 from __future__ import annotations
@@ -36,7 +36,9 @@ def parse_args():
     p.add_argument("--iters-per-stage", type=int, default=10,
                    help="Hard cap on iterations per stage before forcing advance")
     p.add_argument("--advance-win-rate", type=float, default=0.7,
-                   help="Smoothed win rate required to advance a stage")
+                   help="Smoothed completion rate required to advance a stage")
+    p.add_argument("--advance-metric", choices=["self_play", "eval"], default="self_play",
+                   help="Metric used for stage advancement (default: self_play)")
     p.add_argument("--min-iters", type=int, default=2,
                    help="Minimum iterations on a stage before it is eligible to advance")
     p.add_argument("--games-per-iter", type=int, default=100)
@@ -82,7 +84,7 @@ def main():
 
     print(f"Curriculum: {len(base_levels)} levels x 4 stages = {len(stages)} total stages")
     print(f"Progression per level: base -> +1 -> +2 -> +3 pickups")
-    print(f"Advance when smoothed win rate >= {args.advance_win_rate:.0%} "
+    print(f"Advance when smoothed {args.advance_metric} completion >= {args.advance_win_rate:.0%} "
           f"(after >= {args.min_iters} iters, hard cap {args.iters_per_stage})")
     print()
 
@@ -105,6 +107,7 @@ def main():
             eval_games=args.eval_games,
             iters_per_level=args.iters_per_stage,
             win_threshold=args.advance_win_rate,
+            advance_metric=args.advance_metric,
             fresh=args.fresh,
         ),
     )

@@ -33,12 +33,17 @@ class AlphaZeroTrainer(Trainer):
       3. Train ``AlphaZeroNet`` (dual-head: policy + value) on collected examples
       4. Export to ONNX for Rust inference
       5. Evaluate on the hardest level in the current stage
-      6. Advance when smoothed win rate >= stage.advance_win_rate AND
+      6. Advance when smoothed gate completion >= stage.advance_win_rate AND
          iters_on_stage >= stage.min_iters (hard cap: az.iters_per_level)
     """
 
     def fit(self, config: TrainingConfig) -> Path:
         az = config.alphazero
+        if az.advance_metric not in {"self_play", "eval"}:
+            raise ValueError(
+                f"Unsupported AlphaZero advance_metric={az.advance_metric!r}; "
+                "expected 'self_play' or 'eval'"
+            )
 
         if az.generate_curriculum:
             generate_curriculum_maps()
@@ -79,10 +84,12 @@ class AlphaZeroTrainer(Trainer):
         net = AlphaZeroNet()
         best_model_pt = save_dir / "best_model.pt"
         best_model_onnx = save_dir / "best_model.onnx"
+        best_model_available = False
 
         resume_iter = 0
         if config.resume_from and best_model_pt.exists():
             net.load_state_dict(torch.load(best_model_pt, weights_only=True))
+            best_model_available = best_model_onnx.exists()
             try:
                 resume_iter = int(config.resume_from)
             except (TypeError, ValueError):
@@ -97,6 +104,7 @@ class AlphaZeroTrainer(Trainer):
         iteration = resume_iter
         end_iteration = resume_iter + az.iterations
         levels_seen: set[int] = set()
+        generated_shards: dict[tuple[int, int], str] = {}
 
         budget_exhausted = False
         last_stage_idx = -1
@@ -121,12 +129,12 @@ class AlphaZeroTrainer(Trainer):
                 f"(max_steps={stage_max_steps}, sims={stage_sims})"
             )
             print(
-                f"  Advance target: win_rate >= {stage_win_target:.0%} "
+                f"  Advance target: {az.advance_metric} completion >= {stage_win_target:.0%} "
                 f"after >= {stage_min_iters} iters (hard cap {hard_cap})"
             )
             print(f"{'#' * 60}")
 
-            recent_win_rates: list[float] = []
+            recent_gate_rates: list[float] = []
             iters_on_stage = 0
             advanced = False
             # Per-stage best tracking: harder stages shouldn't inherit the
@@ -146,7 +154,7 @@ class AlphaZeroTrainer(Trainer):
 
                 # --- Self-play ---
                 t0 = time.time()
-                sp_model_path = str(best_model_onnx) if best_model_onnx.exists() else None
+                sp_model_path = str(best_model_onnx) if best_model_available else None
 
                 examples, _sp_stats = run_self_play(
                     level=play_level,
@@ -157,11 +165,15 @@ class AlphaZeroTrainer(Trainer):
                     max_steps=stage_max_steps,
                     model_path=sp_model_path,
                 )
+                self_play_total = len(_sp_stats)
+                self_play_wins = sum(1 for s in _sp_stats if s.completed)
+                self_play_win_rate = self_play_wins / max(self_play_total, 1)
 
                 iter_data_path = os.path.join(
                     f"data/alphazero/{play_level}", f"iteration_{iteration}.npz"
                 )
                 save_examples(examples, iter_data_path)
+                generated_shards[(play_level, iteration)] = iter_data_path
                 print(f"  Self-play: {len(examples)} examples in {time.time() - t0:.1f}s")
 
                 # --- Replay buffer ---
@@ -170,8 +182,10 @@ class AlphaZeroTrainer(Trainer):
                 for lvl in levels_seen:
                     lvl_data_dir = f"data/alphazero/{lvl}"
                     for i in range(start_iter, iteration + 1):
-                        path = os.path.join(lvl_data_dir, f"iteration_{i}.npz")
-                        if os.path.exists(path):
+                        path = generated_shards.get((lvl, i))
+                        if path is None and config.resume_from:
+                            path = os.path.join(lvl_data_dir, f"iteration_{i}.npz")
+                        if path is not None and os.path.exists(path):
                             all_examples.extend(load_examples(path))
                 print(
                     f"  Replay buffer: {len(all_examples)} examples "
@@ -205,27 +219,33 @@ class AlphaZeroTrainer(Trainer):
                     action_repeat=config.action_repeat,
                     max_steps=stage_max_steps,
                 )
-                win_rate = results["win_rate"]
-                recent_win_rates.append(win_rate)
+                eval_win_rate = results["win_rate"]
+                gate_rate = (
+                    self_play_win_rate
+                    if az.advance_metric == "self_play"
+                    else eval_win_rate
+                )
+                recent_gate_rates.append(gate_rate)
                 window = max(1, az.win_rate_window)
-                smoothed = sum(recent_win_rates[-window:]) / min(
-                    len(recent_win_rates), window
+                smoothed = sum(recent_gate_rates[-window:]) / min(
+                    len(recent_gate_rates), window
                 )
                 print(
                     f"  Eval (L{eval_level}): reward={results['mean_reward']:.1f}, "
                     f"pickups={results['mean_pickups']:.1f}, "
-                    f"wins={results['wins']}/{results['total']} ({win_rate:.0%}), "
-                    f"smoothed={smoothed:.0%}"
+                    f"wins={results['wins']}/{results['total']} ({eval_win_rate:.1%}), "
+                    f"smoothed={smoothed:.1%}, gate={gate_rate:.1%} ({az.advance_metric})"
                 )
 
                 # --- Promote best model (only if eval improved) ---
-                candidate_score = (win_rate, float(results["mean_reward"]))
+                candidate_score = (eval_win_rate, float(results["mean_reward"]))
                 if best_score is None or candidate_score > best_score:
                     torch.save(net.state_dict(), str(best_model_pt))
                     export_to_onnx(net, str(best_model_onnx))
+                    best_model_available = True
                     best_score = candidate_score
                     print(
-                        f"  -> promoted to best (win_rate={win_rate:.0%}, "
+                        f"  -> promoted to best (win_rate={eval_win_rate:.0%}, "
                         f"reward={candidate_score[1]:.1f})"
                     )
                 else:
@@ -244,16 +264,20 @@ class AlphaZeroTrainer(Trainer):
                     and smoothed >= stage_win_target
                 ):
                     print(
-                        f"  >>> Advancing stage (smoothed {smoothed:.0%} >= "
+                        f"  >>> Advancing stage ({az.advance_metric} smoothed {smoothed:.0%} >= "
                         f"{stage_win_target:.0%} after {iters_on_stage} iters)"
                     )
                     advanced = True
                     break
 
             if not advanced and iteration < end_iteration:
+                window = max(1, az.win_rate_window)
+                recent_smoothed = sum(recent_gate_rates[-window:]) / max(
+                    1, min(len(recent_gate_rates), window)
+                )
                 print(
                     f"  >>> Force-advancing stage (hit hard cap {hard_cap}, "
-                    f"smoothed={sum(recent_win_rates[-max(1, az.win_rate_window):]) / max(1, min(len(recent_win_rates), az.win_rate_window)):.0%})"
+                    f"{az.advance_metric} smoothed={recent_smoothed:.0%})"
                 )
 
             if iteration >= end_iteration:

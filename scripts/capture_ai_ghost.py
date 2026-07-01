@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dashboard.db import get_db, init_db  # noqa: E402
 from spaceace.agents.base import AGENT_REGISTRY  # noqa: E402
 import spaceace.agents  # noqa: E402,F401
+from spaceace.ghost_actions import action_to_index, write_sidecar_if_best  # noqa: E402
 
 
 def main():
@@ -34,6 +35,9 @@ def main():
     p.add_argument("--rewind-history", type=int, default=40)
     p.add_argument("--rewind-stuck", type=int, default=180)
     p.add_argument("--rewind-regret", type=float, default=0.35)
+    p.add_argument("--tas-path", type=str, default=None)
+    p.add_argument("--tas-label", type=str, default="ai")
+    p.add_argument("--tas-validate", action="store_true")
     args = p.parse_args()
 
     init_db()
@@ -63,6 +67,10 @@ def main():
         setup_kwargs["step_penalty"] = args.step_penalty
         setup_kwargs["action_repeat"] = args.action_repeat
         setup_kwargs["optimize"] = not args.no_optimize
+    elif args.agent == "tas":
+        setup_kwargs["tas_path"] = args.tas_path
+        setup_kwargs["tas_label"] = args.tas_label
+        setup_kwargs["tas_validate"] = args.tas_validate
 
     print(f"[{args.agent}] level={args.level} kwargs={setup_kwargs}", flush=True)
     t0 = time.time()
@@ -73,6 +81,8 @@ def main():
 
     raw_env = agent.get_raw_env()
     frames = []
+    action_indices = []
+    last_action_tick = 0
     step = 0
     info = {}
 
@@ -81,11 +91,20 @@ def main():
         action, reward, terminated, truncated, info = agent.step()
         step += 1
         obs = raw_env.get_observation()
+        # Record the true physics-tick count. Agents like mcts_rewind advance
+        # multiple ticks per agent.step(), so the decision index is not a
+        # reliable time base.
+        tick = int(info.get("step_count", step))
+        delta_ticks = max(0, tick - last_action_tick)
+        if delta_ticks:
+            action_indices.extend([action_to_index(action)] * delta_ticks)
+        last_action_tick = tick
         frames.append({
             "x": round(float(obs[0]), 1),
             "y": round(float(obs[1]), 1),
             "rotation": round(float(obs[4]), 3),
             "thrusting": int(action[2]) > 0,
+            "tick": tick,
         })
         if terminated or truncated:
             break
@@ -98,24 +117,30 @@ def main():
     else:
         outcome = "truncated"
 
-    time_seconds = step / 60.0
-    print(f"[{args.agent}] outcome={outcome} steps={step} game_time={time_seconds:.2f}s "
-          f"play_elapsed={play_elapsed:.1f}s", flush=True)
+    tick_count = int(info.get("step_count", step))
+    time_seconds = tick_count / 60.0
+    print(f"[{args.agent}] outcome={outcome} decisions={step} ticks={tick_count} "
+          f"game_time={time_seconds:.2f}s play_elapsed={play_elapsed:.1f}s", flush=True)
 
     if outcome != "completed":
         print(f"[{args.agent}] did not complete, not saving ghost", flush=True)
         return 1
 
-    # Build compact ghost frames with time (downsample to ~10fps)
+    # Build compact ghost frames with time (downsample to ~10fps by physics ticks)
     ghost_frames = []
+    target_stride = 6
+    next_emit_tick = 0
+    last_idx = len(frames) - 1
     for i, f in enumerate(frames):
-        if i % 6 == 0 or i == len(frames) - 1:
+        tick = int(f.get("tick", i))
+        if tick >= next_emit_tick or i == last_idx:
             ghost_frames.append({
                 "x": f["x"], "y": f["y"],
                 "rotation": f["rotation"],
                 "thrusting": f["thrusting"],
-                "time": round(i / 60.0, 3),
+                "time": round(tick / 60.0, 3),
             })
+            next_emit_tick = tick + target_stride
 
     ghost_type = args.label if args.label else "ai"
 
@@ -130,6 +155,7 @@ def main():
               f"({existing['time_seconds']:.2f}s <= {time_seconds:.2f}s), not saving",
               flush=True)
         db.close()
+        write_sidecar_if_best(args.level, ghost_type, action_indices, tick_count)
         return 0
 
     db.execute(
@@ -143,6 +169,7 @@ def main():
     db.close()
     print(f"[{args.agent}] saved ghost (type={ghost_type}): "
           f"{len(ghost_frames)} frames, {time_seconds:.2f}s", flush=True)
+    write_sidecar_if_best(args.level, ghost_type, action_indices, tick_count)
     return 0
 
 

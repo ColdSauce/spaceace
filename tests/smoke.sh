@@ -32,6 +32,9 @@ run "mcts grid level 0" \
 run "mcts momentum level 0" \
     uv run python run.py --agent mcts --level 0 --headless --episodes 1 --num-simulations 100 --max-steps 500 --momentum-pathfinder
 
+run "alphazero level 0" \
+    uv run python run.py --agent alphazero --level 0 --headless --episodes 1 --num-simulations 50 --max-steps 500
+
 # PPO checkpoints on disk are pre-broken: saved VecNormalize has obs shape
 # that doesn't match current training_env. Not caused by the refactor.
 # Uncomment once a fresh checkpoint is trained under the new strategies/ layout.

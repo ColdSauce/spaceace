@@ -10,6 +10,10 @@ thread_local! {
     static RNG_STATE: Cell<u32> = Cell::new(12345);
 }
 
+pub fn set_rng_seed(seed: u32) {
+    RNG_STATE.with(|state| state.set(seed.max(1)));
+}
+
 fn fast_random() -> u32 {
     RNG_STATE.with(|state| {
         let mut x = state.get();
@@ -299,7 +303,7 @@ pub fn alphazero_search(
     }
 
     // Select action based on temperature
-    let best_action = if params.temperature < 0.01 {
+    let best_action = if params.temperature <= 0.01 {
         let mut best = 0usize;
         let mut best_visits = 0u32;
         for i in 0..NUM_ACTIONS {
@@ -338,6 +342,12 @@ pub fn alphazero_search(
     } else {
         0.0
     };
+
+    // Leave the caller's simulation game at the root state. Search loads many
+    // child/leaf snapshots into `game`; callers such as self-play expect to
+    // apply the chosen action from the original root, not from the last leaf
+    // touched by MCTS.
+    game.load_state(root_snapshot);
 
     (best_action, policy_target, root_value, root_obs)
 }

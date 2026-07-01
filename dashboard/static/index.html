@@ -30,11 +30,11 @@ const AGENT_LABELS = { ppo:'PPO', hrl_pilot:'HRL Pilot', hrl_dqn:'HRL DQN', hrl_
 const AGENT_DESC = { ppo:'Policy gradient (SB3)', hrl_pilot:'Hierarchical waypoint pilot', hrl_dqn:'HRL + DQN pilot', hrl_ppo:'HRL + PPO pilot', alphazero:'Self-play MCTS + neural net' };
 function friendlyAgent(t) { return AGENT_LABELS[t]||t; }
 
-const TAG_LABELS = { 'rollout/ep_rew_mean':'Reward','rollout/ep_len_mean':'Ep Length','episode/completed':'Completed','episode/crashed':'Crashed','episode/thrust_ratio':'Thrust','episode/pickups_collected':'Pickups','train/loss':'Loss','curriculum/stage':'Stage','curriculum/smoothed_win_rate':'Win Rate','alphazero/policy_loss':'Policy Loss','alphazero/value_loss':'Value Loss','alphazero/eval_reward':'Eval Reward','alphazero/eval_pickups':'Eval Pickups','alphazero/eval_win_rate':'Eval Win Rate','alphazero/smoothed_win_rate':'Smoothed Win Rate','alphazero/self_play_wins':'Self-play Wins','alphazero/self_play_crashes':'Self-play Crashes','alphazero/self_play_reward':'Self-play Reward','alphazero/self_play_pickups':'Self-play Pickups' };
+const TAG_LABELS = { 'rollout/ep_rew_mean':'Reward','rollout/ep_len_mean':'Ep Length','episode/completed':'Completed','episode/crashed':'Crashed','episode/thrust_ratio':'Thrust','episode/pickups_collected':'Pickups','train/loss':'Loss','curriculum/stage':'Stage','curriculum/smoothed_win_rate':'Win Rate','alphazero/policy_loss':'Policy Loss','alphazero/value_loss':'Value Loss','alphazero/eval_reward':'Eval Reward','alphazero/eval_pickups':'Eval Pickups','alphazero/eval_win_rate':'Eval Completion','alphazero/smoothed_win_rate':'Stage Gate Success','alphazero/curriculum_stage':'Curriculum Stage','alphazero/self_play_completion':'Self-play Completion','alphazero/self_play_wins':'Self-play Wins','alphazero/self_play_crashes':'Self-play Crashes','alphazero/self_play_reward':'Self-play Reward','alphazero/self_play_pickups':'Self-play Pickups' };
 function tagLabel(t) { return TAG_LABELS[t] || t.split('/').pop(); }
-const CHART_COLORS = { 'rollout/ep_rew_mean':'#22d3ee','episode/completed':'#34d399','episode/crashed':'#f87171','rollout/ep_len_mean':'#a78bfa','train/loss':'#f87171','curriculum/stage':'#fbbf24','curriculum/smoothed_win_rate':'#34d399','alphazero/policy_loss':'#f87171','alphazero/value_loss':'#fbbf24','alphazero/eval_reward':'#22d3ee','alphazero/eval_win_rate':'#34d399','alphazero/smoothed_win_rate':'#34d399','alphazero/self_play_crashes':'#f87171','alphazero/self_play_reward':'#22d3ee','alphazero/self_play_wins':'#34d399','alphazero/eval_pickups':'#a78bfa','alphazero/self_play_pickups':'#a78bfa' };
+const CHART_COLORS = { 'rollout/ep_rew_mean':'#22d3ee','episode/completed':'#34d399','episode/crashed':'#f87171','rollout/ep_len_mean':'#a78bfa','train/loss':'#f87171','curriculum/stage':'#fbbf24','curriculum/smoothed_win_rate':'#34d399','alphazero/policy_loss':'#f87171','alphazero/value_loss':'#fbbf24','alphazero/eval_reward':'#22d3ee','alphazero/eval_win_rate':'#34d399','alphazero/smoothed_win_rate':'#34d399','alphazero/curriculum_stage':'#a78bfa','alphazero/self_play_completion':'#34d399','alphazero/self_play_crashes':'#f87171','alphazero/self_play_reward':'#22d3ee','alphazero/self_play_wins':'#34d399','alphazero/eval_pickups':'#a78bfa','alphazero/self_play_pickups':'#a78bfa' };
 const DEFAULT_TAGS = ['rollout/ep_rew_mean','episode/completed','episode/crashed','rollout/ep_len_mean','curriculum/stage','curriculum/smoothed_win_rate'];
-const AZ_DEFAULT_TAGS = ['alphazero/smoothed_win_rate','alphazero/eval_reward','alphazero/policy_loss','alphazero/value_loss','alphazero/self_play_crashes','alphazero/self_play_reward'];
+const AZ_DEFAULT_TAGS = ['alphazero/eval_reward','alphazero/curriculum_stage','alphazero/self_play_completion','alphazero/policy_loss','alphazero/value_loss','alphazero/self_play_crashes','alphazero/self_play_reward'];
 
 // ── router ───────────────────────────────────────────────────────────────────
 function useRoute() { const [h,s]=useState(location.hash||'#/'); useEffect(()=>{const f=()=>s(location.hash||'#/');addEventListener('hashchange',f);return()=>removeEventListener('hashchange',f)},[]);return h; }
@@ -137,8 +137,8 @@ const TRAINING_PRESETS = {
         { id:'curriculum_short', label:'Curriculum (short)', desc:'Same progression, fewer total steps', trainer:'ppo_curriculum', args:{timesteps:2000000} },
     ],
     alphazero: [
+        { id:'curriculum', label:'Pickup curriculum (recommended)', desc:'Progressive pickup variants: for each level train base → +1 → +2 → +3 pickups before advancing. Mirrors PPO curriculum. Starts from a clean AlphaZero replay/model set.', trainer:'alphazero_curriculum', args:{iterations:500,iters_per_stage:10,advance_win_rate:0.7,advance_metric:'self_play',min_iters:2,fresh:true}, recommended:true },
         { id:'quick', label:'Single level (quick)', desc:'50 iterations of self-play + training on one level', trainer:'alphazero', args:{level:0,iterations:50} },
-        { id:'curriculum', label:'Pickup curriculum (recommended)', desc:'Progressive pickup variants: for each level train base → +1 → +2 → +3 pickups before advancing. Mirrors PPO curriculum.', trainer:'alphazero_curriculum', args:{iterations:500,iters_per_stage:10,advance_win_rate:0.7,min_iters:2}, recommended:true },
         { id:'curriculum_short', label:'Pickup curriculum (short)', desc:'Same pickup-variant progression with a smaller iteration budget for quicker feedback.', trainer:'alphazero_curriculum', args:{iterations:60,iters_per_stage:4,advance_win_rate:0.7,min_iters:2,base_levels:'3000,3001,3002'} },
     ],
     hrl_pilot: [
@@ -155,7 +155,7 @@ const TRAINING_PRESETS = {
     ],
 };
 
-const FIELD_LABELS = {level:'Level',levels:'Levels',base_levels:'Base Levels',timesteps:'Timesteps',action_repeat:'Action Repeat',obs:'Observation',reward:'Reward',iterations:'Iterations',iters_per_stage:'Iters/stage',advance_win_rate:'Advance Win %',min_iters:'Min Iters',games_per_iter:'Games/iter',num_sims:'MCTS Sims',max_steps:'Max Steps',max_episode_steps:'Max Steps'};
+const FIELD_LABELS = {level:'Level',levels:'Levels',base_levels:'Base Levels',timesteps:'Timesteps',action_repeat:'Action Repeat',obs:'Observation',reward:'Reward',iterations:'Iterations',iters_per_stage:'Iters/stage',advance_win_rate:'Advance Rate',advance_metric:'Advance Metric',min_iters:'Min Iters',games_per_iter:'Games/iter',num_sims:'MCTS Sims',max_steps:'Max Steps',max_episode_steps:'Max Steps'};
 
 function TypePage({type}) {
     const [tab,setTab]=useState('runs');
@@ -399,7 +399,7 @@ ${p&&p.elapsed&&p.total_timesteps>0&&p.target_timesteps?(()=>{const eta=p.elapse
                             ${p?html`
                                 <div class="run-row-metrics">
                                     ${p.stage!=null?html`<span class="metric-pill" style="color:var(--accent)">stage ${p.stage}/${p.total_stages||'?'}</span>`:null}
-                                    ${p.win_rate!=null?html`<span class="metric-pill" style="color:${p.win_rate>=0.7?'var(--green)':'var(--text-dim)'}">win ${(p.win_rate*100).toFixed(0)}%</span>`:null}
+                                    ${p.win_rate!=null?html`<span class="metric-pill" style="color:${p.win_rate>=0.7?'var(--green)':'var(--text-dim)'}">${isAZ?'gate':'win'} ${fmtPct(p.win_rate)}</span>`:null}
                                     ${p.reward!=null?html`<span class="metric-pill" style="color:var(--accent)">reward ${fmtNum(p.reward,1)}</span>`:null}
                                     ${p.crashed!=null?html`<span class="metric-pill" style="color:${p.crashed>0?'var(--red)':'var(--text-dim)'}">crash ${p.crashed}</span>`:null}
                                 </div>

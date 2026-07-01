@@ -7,15 +7,19 @@ pub mod real_map_parser;
 pub mod real_game;
 pub mod pathfinder;
 pub mod mcts;
+#[cfg(feature = "alphazero")]
 pub mod nn_evaluator;
+#[cfg(feature = "alphazero")]
 pub mod alphazero_mcts;
 
 use real_game::{RealSpaceAceGame, GameSnapshot};
 use real_map_parser::parse_map_json;
 use pathfinder::{PathfinderGrid, MomentumPathfinder, PathfinderKind};
 use mcts::{mcts_search, mcts_search_with_stats, mcts_search_parallel, get_heuristic_breakdown, MCTSParams, MCTSTree, set_rng_seed};
+#[cfg(feature = "alphazero")]
 use nn_evaluator::{NNEvaluator, build_alphazero_obs};
-use alphazero_mcts::{alphazero_search, AlphaZeroParams};
+#[cfg(feature = "alphazero")]
+use alphazero_mcts::{alphazero_search, set_rng_seed as set_alphazero_rng_seed, AlphaZeroParams};
 
 // ---------------------------------------------------------------------------
 // Shared observation / reward logic (used by both PyO3 and IPC paths)
@@ -817,12 +821,14 @@ impl PyPathfinder {
     }
 }
 
+#[cfg(feature = "alphazero")]
 fn normalize_heuristic(heuristic: f64) -> f32 {
     // tanh gives strong gradient near 0 (crash avoidance) while saturating smoothly for high values.
     // heuristic=-100 (crash) -> -0.46, 0 (neutral) -> 0.0, 200 (1 pickup) -> 0.76
     (heuristic / 200.0).tanh() as f32
 }
 
+#[cfg(feature = "alphazero")]
 #[pyclass]
 struct PyAlphaZeroEngine {
     sim_game: RealSpaceAceGame,
@@ -831,6 +837,7 @@ struct PyAlphaZeroEngine {
     max_steps: u32,
 }
 
+#[cfg(feature = "alphazero")]
 #[pymethods]
 impl PyAlphaZeroEngine {
     #[new]
@@ -887,6 +894,11 @@ impl PyAlphaZeroEngine {
         Ok(())
     }
 
+    /// Seed AlphaZero's root Dirichlet/action sampling RNG for this thread.
+    fn set_rng_seed(&mut self, seed: u32) {
+        set_alphazero_rng_seed(seed);
+    }
+
     /// Build the 27-dim observation for a given state (for training data collection).
     fn get_observation(&mut self, state: &PyGameState) -> Vec<f32> {
         self.sim_game.load_state(state.snapshot.clone());
@@ -907,10 +919,10 @@ impl PyAlphaZeroEngine {
     /// policies_flat is a flat Vec<f32> of 6 * N examples.
     /// values is Vec<f32> of N examples.
     /// stats_list is a list of (total_reward, pickups_collected, completed, crashed, steps).
-    #[pyo3(signature = (num_games, num_simulations, c_puct=1.5, action_repeat=5, temp_threshold=30, max_steps=3000, dirichlet_alpha=0.3, dirichlet_epsilon=0.25))]
+    #[pyo3(signature = (num_games, num_simulations, c_puct=1.5, action_repeat=5, temp_threshold=30, max_steps=3000, dirichlet_alpha=0.3, dirichlet_epsilon=0.25, temperature_after_threshold=0.1))]
     fn play_games(&mut self, num_games: u32, num_simulations: u32,
                   c_puct: f64, action_repeat: u32, temp_threshold: u32, max_steps: u32,
-                  dirichlet_alpha: f64, dirichlet_epsilon: f64)
+                  dirichlet_alpha: f64, dirichlet_epsilon: f64, temperature_after_threshold: f64)
         -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<(f64, i32, bool, bool, u32)>)
     {
         let mut all_obs: Vec<f32> = Vec::new();
@@ -931,7 +943,7 @@ impl PyAlphaZeroEngine {
 
             loop {
                 let snapshot = self.sim_game.save_state();
-                let temperature = if step < temp_threshold { 1.0 } else { 0.1 };
+                let temperature = if step < temp_threshold { 1.0 } else { temperature_after_threshold };
 
                 let params = AlphaZeroParams {
                     num_simulations, action_repeat, c_puct,
@@ -968,31 +980,19 @@ impl PyAlphaZeroEngine {
                     if terminated || step >= max_steps { break; }
                 }
 
-                // Placeholder — value assigned retroactively after game ends
-                game_values.push(0.0);
+                let step_value = if self.sim_game.is_level_completed() {
+                    1.0
+                } else if self.sim_game.is_ship_exploded() {
+                    -1.0
+                } else {
+                    let h = mcts::evaluate_state_pub(&self.sim_game, &self.pathfinder);
+                    normalize_heuristic(h)
+                };
+                game_values.push(step_value);
 
                 if terminated || step >= max_steps {
                     let completed = self.sim_game.is_level_completed();
                     let crashed = self.sim_game.is_ship_exploded();
-
-                    // Assign undiscounted game outcome as value target (standard AlphaZero MC return).
-                    // Wins get a speed bonus: finishing faster = higher value.
-                    // For truncations (no terminal signal), fall back to the normalized heuristic
-                    // at end-of-game so every example carries a learning signal.
-                    let time_remaining = 1.0 - (step as f64 / max_steps as f64);
-                    let outcome: f32 = if completed {
-                        // Range [0.5, 1.0]: fast completion = 1.0, slow = 0.5
-                        (0.5 + 0.5 * time_remaining) as f32
-                    } else if crashed {
-                        -1.0
-                    } else {
-                        // Truncated: use heuristic evaluation of final state as a soft target.
-                        let h = mcts::evaluate_state_pub(&self.sim_game, &self.pathfinder);
-                        normalize_heuristic(h)
-                    };
-                    for v in game_values.iter_mut() {
-                        *v = outcome;
-                    }
 
                     all_obs.extend_from_slice(&game_obs);
                     all_policies.extend_from_slice(&game_policies);
@@ -1022,6 +1022,23 @@ fn spaceace_rl(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAlphaZeroEngine>()?;
     m.add_function(pyo3::wrap_pyfunction!(py_set_rng_seed, m)?)?;
     Ok(())
+}
+
+#[cfg(not(feature = "alphazero"))]
+#[pyclass]
+struct PyAlphaZeroEngine;
+
+#[cfg(not(feature = "alphazero"))]
+#[pymethods]
+impl PyAlphaZeroEngine {
+    #[new]
+    fn new() -> PyResult<Self> {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "PyAlphaZeroEngine is unavailable: spaceace-rl was built without the \
+             `alphazero` feature. Rebuild with `--features alphazero` to enable \
+             ONNX-based AlphaZero inference.",
+        ))
+    }
 }
 
 /// Seed the MCTS RNG on the current thread. Useful for reproducible runs;

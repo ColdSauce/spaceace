@@ -56,12 +56,14 @@ TRAINER_ARGS = {
         "batch_size": {"flag": "--batch-size", "type": "int"},
         "lr": {"flag": "--lr", "type": "float"},
         "max_steps": {"flag": "--max-steps", "type": "int"},
+        "fresh": {"flag": "--fresh", "type": "bool"},
     },
     "alphazero_curriculum": {
         "base_levels": {"flag": "--base-levels", "type": "str"},
         "iterations": {"flag": "--iterations", "type": "int"},
         "iters_per_stage": {"flag": "--iters-per-stage", "type": "int"},
         "advance_win_rate": {"flag": "--advance-win-rate", "type": "float"},
+        "advance_metric": {"flag": "--advance-metric", "type": "str"},
         "min_iters": {"flag": "--min-iters", "type": "int"},
         "games_per_iter": {"flag": "--games-per-iter", "type": "int"},
         "num_sims": {"flag": "--num-sims", "type": "int"},
@@ -73,6 +75,8 @@ TRAINER_ARGS = {
         "buffer_size": {"flag": "--buffer-size", "type": "int"},
         "eval_games": {"flag": "--eval-games", "type": "int"},
         "seed": {"flag": "--seed", "type": "int"},
+        "fresh": {"flag": "--fresh", "type": "bool"},
+        "skip_variant_generation": {"flag": "--skip-variant-generation", "type": "bool"},
     },
     "hrl_pilot": {
         "levels": {"flag": "--levels", "type": "str"},
@@ -97,7 +101,11 @@ def _build_command(trainer: str, args: dict) -> list[str]:
             continue
         spec = schema.get(key)
         if spec:
-            cmd.extend([spec["flag"], str(value)])
+            if spec["type"] == "bool":
+                if value:
+                    cmd.append(spec["flag"])
+            else:
+                cmd.extend([spec["flag"], str(value)])
     return cmd
 
 
@@ -128,6 +136,8 @@ def _make_display_name(trainer: str, args: dict) -> str:
         parts.append(f"{_fmt_steps(int(args['timesteps']))} steps")
     if "iterations" in args and args["iterations"]:
         parts.append(f"{args['iterations']} iters")
+    if args.get("fresh"):
+        parts.append("fresh")
     return " / ".join(parts)
 
 
@@ -335,7 +345,7 @@ _AZ_ITERATION = re.compile(
 )
 _AZ_EVAL = re.compile(
     r"Eval\s+\(L(\d+)\):\s+reward=([-\d.]+),\s+pickups=([\d.]+),"
-    r"\s+wins=(\d+)/(\d+)\s+\((\d+)%\),\s+smoothed=(\d+)%"
+    r"\s+wins=(\d+)/(\d+)\s+\(([\d.]+)%\),\s+smoothed=([\d.]+)%"
 )
 _AZ_LOSS = re.compile(r"Loss:\s+policy=([-\d.]+)\s+value=([-\d.]+)")
 _AZ_GAMES = re.compile(
@@ -362,6 +372,8 @@ def parse_alphazero_series(log_path: str | None) -> dict[str, list[dict]]:
         "alphazero/eval_pickups": [],
         "alphazero/eval_win_rate": [],
         "alphazero/smoothed_win_rate": [],
+        "alphazero/curriculum_stage": [],
+        "alphazero/self_play_completion": [],
         "alphazero/self_play_wins": [],
         "alphazero/self_play_crashes": [],
         "alphazero/self_play_reward": [],
@@ -376,6 +388,7 @@ def parse_alphazero_series(log_path: str | None) -> dict[str, list[dict]]:
         if m:
             current_iter = int(m.group(1))
             self_play_seen = False
+            series["alphazero/curriculum_stage"].append({"step": current_iter, "value": int(m.group(2))})
             continue
         if current_iter is None:
             continue
@@ -383,6 +396,10 @@ def parse_alphazero_series(log_path: str | None) -> dict[str, list[dict]]:
         if m and not self_play_seen:
             self_play_seen = True
             step = current_iter
+            total_games = int(m.group(2))
+            wins = int(m.group(4))
+            if total_games:
+                series["alphazero/self_play_completion"].append({"step": step, "value": wins / total_games})
             series["alphazero/self_play_wins"].append({"step": step, "value": int(m.group(4))})
             series["alphazero/self_play_crashes"].append({"step": step, "value": int(m.group(5))})
             try:
@@ -414,7 +431,10 @@ def parse_alphazero_series(log_path: str | None) -> dict[str, list[dict]]:
             except ValueError:
                 pass
             try:
-                series["alphazero/eval_win_rate"].append({"step": step, "value": float(m.group(6)) / 100.0})
+                wins = int(m.group(4))
+                total = int(m.group(5))
+                if total:
+                    series["alphazero/eval_win_rate"].append({"step": step, "value": wins / total})
             except ValueError:
                 pass
             try:

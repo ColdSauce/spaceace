@@ -32,7 +32,9 @@ def parse_args():
     p.add_argument("--iters-per-level", type=int, default=10,
                    help="Max iterations per level before advancing (default: 10)")
     p.add_argument("--win-threshold", type=float, default=0.5,
-                   help="Win rate to advance to next level (default: 0.5)")
+                   help="Completion rate to advance to next level (default: 0.5)")
+    p.add_argument("--advance-metric", choices=["self_play", "eval"], default="self_play",
+                   help="Metric used for curriculum stage advancement (default: self_play)")
     p.add_argument("--iterations", type=int, default=50)
     p.add_argument("--games-per-iter", type=int, default=100)
     p.add_argument("--num-sims", type=int, default=400)
@@ -183,6 +185,9 @@ def evaluate_model(
         level, num_games, num_sims,
         action_repeat=action_repeat, max_steps=max_steps,
         model_path=model_path,
+        temp_threshold=0,
+        dirichlet_epsilon=0.0,
+        temperature_after_threshold=0.0,
     )
 
     n = len(stats)
@@ -248,6 +253,7 @@ def main():
             eval_games=args.eval_games,
             iters_per_level=args.iters_per_level,
             win_threshold=args.win_threshold,
+            advance_metric=args.advance_metric,
             generate_curriculum=args.generate_curriculum,
             fresh=args.fresh,
         ),

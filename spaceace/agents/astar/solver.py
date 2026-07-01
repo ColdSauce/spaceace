@@ -1,44 +1,11 @@
-"""A* planner for SpaceAce — decomposed outer-TSP + inner single-target A*.
+"""Kinodynamic A* planner for SpaceAce.
 
-Rationale
----------
-A single monolithic A* over ``(x, y, vx, vy, θ, pickup_mask)`` suffers from a
-2^N state-multiplier (N = number of pickups) and a single-target-only heuristic
-that cannot guide the search across multiple collection events. Both effects
-compound: the search sprawls over a combinatorially bloated space with weak
-global guidance and fails to reach the first pickup even on simple levels.
-
-This module instead uses the classical robotics/game-AI decomposition:
-
-1. **Outer loop** — pickup ordering. A TSP tour over remaining pickups using
-   the Rust grid pathfinder's Held-Karp solver. Re-queried after each leg so
-   opportunistic pickups (swept up mid-flight) don't leave stale plans behind.
-
-2. **Inner loop** — single-target kinodynamic A* from the current ship state
-   to one pickup. The state excludes the pickup mask entirely (huge state-space
-   reduction), and the heuristic is admissible per-axis 1D bang-bang bounds
-   combined with ``max`` (concurrent, not sequential).
-
-The admissible heuristic `h(s, P)`:
-    h = max(t_x, t_y) / DT           [in physics frames]
-  where
-    t_x = 1D min-time to close x-gap under |a_x| ≤ THRUST
-    t_y = 1D min-time to close y-gap under
-              a_y ∈ [−(THRUST−g), +(THRUST+g)]  (asymmetric because gravity
-              helps downward and hurts upward)
-
-Each t_axis is the positive root of
-    v² + 2·a·|d| − (|v_aligned| + a·t)² ≥ 0
-evaluated with the initial velocity projected onto the goal direction
-(``v_aligned = max(v_toward, 0)``; using ``max(·,0)`` rather than
-``v_toward`` keeps the bound valid when velocity points *away* from the
-target — ignoring that deceleration phase only makes the bound smaller, which
-is fine for admissibility).
-
-Rotation is deliberately *not* added to the max: the ship may arrive at the
-goal in any orientation, and gravity-only ballistic segments need no rotation
-at all, so adding a rotation term would break admissibility. Rotation cost
-enters implicitly through g(n) (each rotate frame is a real step).
+This solver searches the actual simulator transition graph. A state contains
+position, velocity, rotation, and the collected-pickup mask; edges are the six
+real SpaceAce actions held for a short macro duration. The planner therefore
+does not solve one pickup at a time. It searches for a complete physically
+reachable trajectory, so a fast pickup touch that leaves the ship unrecoverable
+is naturally bad because the remaining-pickup heuristic stays large.
 """
 
 from __future__ import annotations
@@ -47,8 +14,6 @@ import heapq
 import math
 import time
 from dataclasses import dataclass
-
-import numpy as np
 
 import spaceace_rl
 
@@ -60,428 +25,498 @@ NUM_ACTIONS = len(ALL_ACTIONS)
 # Physics constants mirror `src/real_physics.rs`.
 _GRAVITY = 100.0
 _THRUST_POWER = 400.0
-_ROTATION_SPEED = 4.363323
 _DT = 1.0 / 60.0
 
-# Per-axis max accelerations (always admissible lower bounds on travel time).
-_A_X_MAX = _THRUST_POWER                    # 400: pure horizontal thrust
-_A_Y_DOWN_MAX = _THRUST_POWER + _GRAVITY    # 500: thrust + gravity, both downward
-_A_Y_UP_MAX = _THRUST_POWER - _GRAVITY      # 300: thrust fighting gravity
+# Optimistic acceleration bounds for heuristic estimates. These are deliberately
+# generous because the real transition model, not the heuristic, enforces
+# rotation and thrust-direction constraints.
+_A_X_MAX = _THRUST_POWER
+_A_Y_DOWN_MAX = _THRUST_POWER + _GRAVITY
+_A_Y_UP_MAX = _THRUST_POWER - _GRAVITY
+_A_ANY_MAX = _A_Y_DOWN_MAX
+
+# Effective 1D progress model used to turn static route length into time.
+# This is intentionally about route progress through corridors, not raw ship
+# acceleration in open air; the simulator remains the source of truth.
+_ROUTE_ACCEL = 220.0
+_ROUTE_VMAX = 420.0
+_PICKUP_COLLECTION_RADIUS = 46.5
 
 
 @dataclass
-class _NodeRecord:
-    parent_idx: int  # -1 for root
-    action_idx: int  # 0..5, -1 for root
+class _TraceEntry:
+    parent_idx: int
+    action_idx: int
+    repeat: int
     g_frames: int
 
 
-class _Frontier:
-    """Priority-queue entry. Comparison on (f, tiebreak) only."""
-
-    __slots__ = ("f", "tiebreak", "node_idx", "state", "obs")
-
-    def __init__(self, f: float, tiebreak: int, node_idx: int, state, obs) -> None:
-        self.f = float(f)
-        self.tiebreak = int(tiebreak)
-        self.node_idx = int(node_idx)
-        self.state = state
-        self.obs = obs
-
-    def __lt__(self, other: "_Frontier") -> bool:
-        if self.f != other.f:
-            return self.f < other.f
-        return self.tiebreak < other.tiebreak
+def _pickup_bits(pickup_states: list[bool]) -> int:
+    bits = 0
+    for i, collected in enumerate(pickup_states):
+        if collected:
+            bits |= 1 << i
+    return bits
 
 
 def _bang_bang_time(v_toward: float, a_max: float, d_abs: float) -> float:
-    """Admissible lower-bound on 1D travel time under |a| ≤ a_max.
-
-    Uses ``v_aligned = max(v_toward, 0)`` so that adverse initial velocity
-    only *tightens* the bound (lengthens the time), preserving admissibility
-    without needing a deceleration-phase treatment.
-    """
+    """Optimistic 1D double-integrator time bound in seconds."""
     if d_abs <= 0.0:
         return 0.0
-    v = max(v_toward, 0.0)
-    disc = v * v + 2.0 * a_max * d_abs
-    return (math.sqrt(disc) - v) / a_max
+    disc = v_toward * v_toward + 2.0 * a_max * d_abs
+    return (math.sqrt(disc) - v_toward) / a_max
 
 
 class AStarSolver:
-    """Outer TSP + inner physics-aware A*.
+    """Whole-level kinodynamic weighted A*.
 
-    Parameters mostly carry over from the previous monolithic implementation;
-    the key additions are ``leg_time_limit_s`` and ``leg_max_expansions``
-    which budget the inner A* per-leg (the outer loop solves one pickup at a
-    time and each leg gets its own budget).
+    The search is "weighted" by default through ``heuristic_weight``. A weight
+    above 1.0 intentionally trades proof of optimality for practical planning
+    speed; the simulator still validates every returned action.
     """
 
     def __init__(
         self,
         env: SpaceAceDirectEnv,
         level: int,
-        action_repeat: int = 4,
-        pos_bucket: float = 8.0,
-        vel_bucket: float = 8.0,
-        rot_bucket_deg: float = 10.0,
-        leg_max_expansions: int = 200_000,
-        leg_time_limit_s: float = 60.0,
-        heuristic_weight: float = 1.0,
+        action_repeat: int = 10,
+        pos_bucket: float = 16.0,
+        vel_bucket: float = 16.0,
+        rot_bucket_deg: float = 15.0,
+        max_expansions: int = 200_000,
+        time_limit_s: float = 60.0,
+        heuristic_weight: float = 2.0,
         max_steps: int = 3000,
         verbose: bool = True,
     ) -> None:
         self._env = env
-        self._action_repeat = action_repeat
+        self._action_repeat = max(1, int(action_repeat))
+        self._repeat_options = self._build_repeat_options(self._action_repeat)
         self._pos_bucket = float(pos_bucket)
         self._vel_bucket = float(vel_bucket)
         self._rot_bucket = math.radians(rot_bucket_deg)
         self._rot_bins = max(1, int(round(2 * math.pi / self._rot_bucket)))
-        self._leg_max_expansions = leg_max_expansions
-        self._leg_time_limit = leg_time_limit_s
-        self._hw = heuristic_weight
-        self._max_steps = max_steps
+        self._max_expansions = int(max_expansions)
+        self._time_limit = float(time_limit_s)
+        self._hw = float(heuristic_weight)
+        self._max_steps = int(max_steps)
         self._verbose = verbose
 
         self._pf = spaceace_rl.PyPathfinder(level, "grid")
         self._pickup_coords = list(self._pf.get_pickup_coords())
+        self._total_pickups = len(self._pickup_coords)
+        self._all_collected_mask = (1 << self._total_pickups) - 1
 
-    # ------------------------------------------------------------------ outer
+        self._path_pair = self._build_path_pair_matrix()
+        self._route_tail = self._build_route_tail_table()
 
     def solve(self) -> list[int]:
         env = self._env
         env.reset()
 
+        start_state = env.save_state()
+        start_obs = env.get_observation()
+        start_pickups = list(env.get_pickup_states())
+        start_bits = _pickup_bits(start_pickups)
+
         if self._verbose:
             print(
-                f"\nA* planner (outer TSP + inner single-target):\n"
+                "\nA* planner (whole-level kinodynamic):\n"
                 f"  action_repeat={self._action_repeat} "
+                f"motion_primitives={self._repeat_options} "
                 f"buckets=(pos={self._pos_bucket}, vel={self._vel_bucket}, "
-                f"rot={math.degrees(self._rot_bucket):.0f}°) "
+                f"rot={math.degrees(self._rot_bucket):.0f} deg) "
                 f"hw={self._hw}\n"
-                f"  per-leg budget: {self._leg_max_expansions} expansions / "
-                f"{self._leg_time_limit:.0f}s"
+                f"  budget: {self._max_expansions} expansions / "
+                f"{self._time_limit:.0f}s"
             )
 
-        state = env.save_state()
-        all_actions: list[int] = []
-        frames_used = 0
-        leg_idx = 0
+        if start_bits == self._all_collected_mask:
+            return []
 
-        while True:
-            env.load_state(state)
-            pstates = list(env.get_pickup_states())
-            if all(pstates):
-                break
-            obs = env.get_observation()
-
-            # Re-query TSP order each leg — opportunistic side-pickups may
-            # have shifted the optimal ordering.
-            try:
-                order = list(self._pf.get_tsp_order(float(obs[0]), float(obs[1]), pstates))
-            except Exception as e:
-                print(f"  TSP failed: {e}")
-                return []
-            if not order:
-                break
-            target_idx = order[0]
-            target_x, target_y = self._pickup_coords[target_idx]
-
-            frames_remaining = self._max_steps - frames_used
-            if frames_remaining <= 0:
-                print("  Frame budget exhausted.")
-                return []
-
-            if self._verbose:
-                print(
-                    f"\n  Leg {leg_idx}: target pickup #{target_idx} at "
-                    f"({target_x:.0f}, {target_y:.0f}), "
-                    f"ship at ({obs[0]:.0f}, {obs[1]:.0f}), "
-                    f"frames_remaining={frames_remaining}"
-                )
-
-            leg_result = self._solve_leg(
-                start_state=state, target_pickup_idx=target_idx,
-                target_x=target_x, target_y=target_y,
-                max_frames=frames_remaining,
-            )
-            if leg_result is None:
-                print(f"  Leg {leg_idx}: no path found to pickup #{target_idx}.")
-                return []
-
-            leg_actions, end_state, new_frames = leg_result
-            all_actions.extend(leg_actions)
-            state = end_state
-            frames_used += new_frames
-            leg_idx += 1
-
-            # Check for level completion (the last collected pickup ends the
-            # level immediately in the sim).
-            env.load_state(state)
-            if env.get_info().get("level_completed", False):
-                break
-
-        if self._verbose:
-            print(f"\nA* total: {len(all_actions)} frames across {leg_idx} legs.")
-        self._validate(all_actions)
-        return all_actions
-
-    # ------------------------------------------------------------------ inner
-
-    def _solve_leg(
-        self, start_state, target_pickup_idx: int,
-        target_x: float, target_y: float, max_frames: int,
-    ):
-        """A* from ``start_state`` to the given pickup.
-
-        Goal test is "target pickup was collected during the transition" —
-        reading ``get_pickup_states`` after each macro-action.
-
-        Returns
-        -------
-        (leg_actions, end_state, frames_used) on success, else None.
-        """
-        env = self._env
-        env.load_state(start_state)
-        init_obs = env.get_observation()
-
-        init_key = self._canonical_key(init_obs)
-        records: list[_NodeRecord] = [
-            _NodeRecord(parent_idx=-1, action_idx=-1, g_frames=0),
+        records: list[_TraceEntry] = [
+            _TraceEntry(parent_idx=-1, action_idx=-1, repeat=0, g_frames=0),
         ]
-        best_g: dict[tuple, int] = {init_key: 0}
 
-        pq: list[_Frontier] = []
-        tiebreak = 0
+        h0 = self._heuristic_frames(start_obs, start_pickups)
+        start_key = self._canonical_key(start_obs, start_pickups)
+        best_seen: dict[tuple, list[tuple[int, float]]] = {start_key: [(0, h0)]}
 
-        h0 = self._heuristic_frames(init_obs, target_x, target_y, target_pickup_idx)
+        # Heap entry: (f, h, remaining_pickups, counter, record_idx, g, state, obs, bits)
+        pq: list[tuple] = []
+        counter = 0
         heapq.heappush(
             pq,
-            _Frontier(f=self._hw * h0, tiebreak=tiebreak, node_idx=0,
-                      state=start_state, obs=init_obs),
+            (
+                self._hw * h0,
+                h0,
+                self._remaining_count(start_bits),
+                counter,
+                0,
+                0,
+                start_state,
+                start_obs,
+                start_bits,
+            ),
         )
-        tiebreak += 1
+        counter += 1
 
-        t_start = time.time()
         expansions = 0
-        last_log_t = t_start
-        closest_dist = math.hypot(init_obs[0] - target_x, init_obs[1] - target_y)
+        t_start = time.time()
+        last_log = t_start
+        best_pickups_left = self._remaining_count(start_bits)
+        closest_remaining = self._nearest_remaining_distance(start_obs, start_pickups)
 
         while pq:
-            if expansions >= self._leg_max_expansions:
-                if self._verbose:
-                    print(
-                        f"    [leg] expansion cap ({expansions}) — closest "
-                        f"approach: {closest_dist:.0f}px."
-                    )
-                return None
             elapsed = time.time() - t_start
-            if elapsed > self._leg_time_limit:
+            if expansions >= self._max_expansions or elapsed > self._time_limit:
                 if self._verbose:
+                    reason = "expansion cap" if expansions >= self._max_expansions else "time limit"
                     print(
-                        f"    [leg] time limit ({elapsed:.1f}s) — closest "
-                        f"approach: {closest_dist:.0f}px."
+                        f"  [whole] {reason}: expansions={expansions} "
+                        f"frontier={len(pq)} best_remaining={best_pickups_left} "
+                        f"closest={closest_remaining:.0f}px elapsed={elapsed:.1f}s"
                     )
-                return None
+                return []
 
-            entry = heapq.heappop(pq)
-            rec = records[entry.node_idx]
-
-            # Stale-entry check.
-            key = self._canonical_key(entry.obs)
-            if best_g.get(key, 1 << 30) < rec.g_frames:
-                continue
-
-            # Frame-budget bound: any descendant of this node will have
-            # g ≥ rec.g_frames + action_repeat.
-            if rec.g_frames + self._action_repeat > max_frames:
+            _f, _h, _rem, _cnt, rec_idx, g_frames, state, parent_obs, parent_bits = heapq.heappop(pq)
+            if g_frames >= self._max_steps:
                 continue
 
             expansions += 1
 
+            repeat_options = self._repeat_options_for(parent_obs, parent_bits)
             for action_idx in range(NUM_ACTIONS):
-                result = self._expand(entry.state, action_idx, target_pickup_idx)
-                new_state, new_obs, collected_target, crashed = result
-                if crashed:
-                    continue
+                for repeat in repeat_options:
+                    expanded = self._expand_macro(state, action_idx, repeat, parent_bits)
+                    if expanded is None:
+                        continue
 
-                child_g = rec.g_frames + self._action_repeat
+                    new_state, new_obs, new_pickups, frames_taken, completed = expanded
+                    child_g = g_frames + frames_taken
+                    if child_g > self._max_steps:
+                        continue
 
-                if collected_target:
-                    # Goal — record and reconstruct.
-                    records.append(_NodeRecord(
-                        parent_idx=entry.node_idx, action_idx=action_idx,
-                        g_frames=child_g,
-                    ))
-                    if self._verbose:
-                        print(
-                            f"    [leg] pickup collected in {child_g} frames "
-                            f"({expansions} expansions, {time.time() - t_start:.1f}s)."
+                    records.append(
+                        _TraceEntry(
+                            parent_idx=rec_idx,
+                            action_idx=action_idx,
+                            repeat=frames_taken,
+                            g_frames=child_g,
                         )
-                    leg_actions = self._reconstruct(records, len(records) - 1)
-                    return leg_actions, new_state, child_g
+                    )
+                    child_idx = len(records) - 1
 
-                if child_g >= max_frames:
-                    continue
+                    bits = _pickup_bits(new_pickups)
+                    if completed or bits == self._all_collected_mask:
+                        actions = self._reconstruct(records, child_idx)
+                        if self._verbose:
+                            print(
+                                f"  [whole] completed in {len(actions)} frames "
+                                f"({expansions} expansions, {time.time() - t_start:.1f}s)."
+                            )
+                        self._validate(actions)
+                        return actions
 
-                child_key = self._canonical_key(new_obs)
-                prior = best_g.get(child_key)
-                if prior is not None and prior <= child_g:
-                    continue
-                best_g[child_key] = child_g
+                    h = self._heuristic_frames(new_obs, new_pickups)
+                    key = self._canonical_key(new_obs, new_pickups)
+                    if self._is_dominated(best_seen, key, child_g, h):
+                        continue
+                    self._remember_state(best_seen, key, child_g, h)
 
-                h = self._heuristic_frames(new_obs, target_x, target_y, target_pickup_idx)
-                f = child_g + self._hw * h
+                    remaining = self._remaining_count(bits)
+                    if remaining < best_pickups_left:
+                        best_pickups_left = remaining
+                        if self._verbose:
+                            print(
+                                f"  [whole] reached {self._total_pickups - remaining}/"
+                                f"{self._total_pickups} pickups at frame {child_g} "
+                                f"({expansions} expansions)."
+                            )
+                    closest_remaining = min(
+                        closest_remaining,
+                        self._nearest_remaining_distance(new_obs, new_pickups),
+                    )
 
-                records.append(_NodeRecord(
-                    parent_idx=entry.node_idx, action_idx=action_idx,
-                    g_frames=child_g,
-                ))
-                child_node_idx = len(records) - 1
-
-                d = math.hypot(new_obs[0] - target_x, new_obs[1] - target_y)
-                if d < closest_dist:
-                    closest_dist = d
-
-                heapq.heappush(
-                    pq,
-                    _Frontier(f=f, tiebreak=tiebreak, node_idx=child_node_idx,
-                              state=new_state, obs=new_obs),
-                )
-                tiebreak += 1
+                    heapq.heappush(
+                        pq,
+                        (
+                            child_g + self._hw * h,
+                            h,
+                            remaining,
+                            counter,
+                            child_idx,
+                            child_g,
+                            new_state,
+                            new_obs,
+                            bits,
+                        ),
+                    )
+                    counter += 1
 
             if self._verbose:
                 now = time.time()
-                if now - last_log_t > 5.0:
-                    last_log_t = now
+                if now - last_log > 5.0:
+                    last_log = now
+                    best_f = pq[0][0] if pq else float("inf")
                     print(
-                        f"    [leg] expansions={expansions} frontier={len(pq)} "
-                        f"tt={len(best_g)} closest={closest_dist:.0f}px "
+                        f"  [whole] expansions={expansions} frontier={len(pq)} "
+                        f"seen={len(best_seen)} best_f={best_f:.0f} "
+                        f"best_remaining={best_pickups_left} "
                         f"elapsed={now - t_start:.1f}s"
                     )
 
         if self._verbose:
-            print(f"    [leg] frontier exhausted — closest={closest_dist:.0f}px.")
-        return None
+            print("  [whole] frontier exhausted.")
+        return []
 
-    # -------------------------------------------------------------- internals
+    # ------------------------------------------------------------------
 
-    def _canonical_key(self, obs) -> tuple:
-        x = int(round(float(obs[0]) / self._pos_bucket))
-        y = int(round(float(obs[1]) / self._pos_bucket))
-        vx = int(round(float(obs[2]) / self._vel_bucket))
-        vy = int(round(float(obs[3]) / self._vel_bucket))
+    def _build_repeat_options(self, action_repeat: int) -> tuple[int, ...]:
+        return (action_repeat,)
+
+    def _repeat_options_for(self, obs, collected_bits: int) -> tuple[int, ...]:
+        remaining = self._total_pickups - collected_bits.bit_count()
+        nearest = self._nearest_uncollected_euclid_from_bits(obs, collected_bits)
+        if remaining == 1 and nearest <= 120.0:
+            return tuple(sorted({1, max(2, self._action_repeat // 2), self._action_repeat}))
+        if remaining == 1 and nearest <= 220.0:
+            return tuple(sorted({max(2, self._action_repeat // 2), self._action_repeat}))
+        return self._repeat_options
+
+    def _expand_macro(self, parent_state, action_idx: int, repeat: int, parent_bits: int):
+        env = self._env
+        env.load_state(parent_state)
+        action = ALL_ACTIONS[action_idx]
+
+        obs = None
+        frames_taken = 0
+        for _ in range(repeat):
+            obs, _r, terminated, truncated, info = env.step(action)
+            frames_taken += 1
+
+            if info.get("ship_exploded", False):
+                return None
+            pickup_states = list(env.get_pickup_states())
+            bits = _pickup_bits(pickup_states)
+            if info.get("level_completed", False) or bits != parent_bits:
+                return env.save_state(), obs, pickup_states, frames_taken, info.get("level_completed", False)
+            if terminated or truncated:
+                return None
+
+        return env.save_state(), obs, list(env.get_pickup_states()), frames_taken, False
+
+    def _canonical_key(self, obs, pickup_states: list[bool]) -> tuple:
+        bits = _pickup_bits(pickup_states)
+        remaining = self._total_pickups - bits.bit_count()
+        nearest = self._nearest_uncollected_euclid_from_bits(obs, bits)
+        precision = 1 if remaining == 1 and nearest <= 140.0 else 0
+        pos_bucket = self._pos_bucket * (0.5 if precision else 1.0)
+        vel_bucket = self._vel_bucket * (0.5 if precision else 1.0)
+        rot_bucket = self._rot_bucket * (0.5 if precision else 1.0)
+        rot_bins = max(1, int(round(2 * math.pi / rot_bucket)))
+
+        x = int(round(float(obs[0]) / pos_bucket))
+        y = int(round(float(obs[1]) / pos_bucket))
+        vx = int(round(float(obs[2]) / vel_bucket))
+        vy = int(round(float(obs[3]) / vel_bucket))
         rot = float(obs[4]) % (2.0 * math.pi)
-        rb = int(rot / self._rot_bucket) % self._rot_bins
-        return (x, y, vx, vy, rb)
+        rb = int(rot / rot_bucket) % rot_bins
+        return (precision, x, y, vx, vy, rb, bits)
 
-    def _heuristic_frames(
-        self, obs, target_x: float, target_y: float,
-        target_pickup_idx: int,
+    def _heuristic_frames(self, obs, pickup_states: list[bool]) -> float:
+        remaining_mask = self._remaining_mask(pickup_states)
+        if remaining_mask == 0:
+            return 0.0
+
+        x = float(obs[0])
+        y = float(obs[1])
+        vx = float(obs[2])
+        vy = float(obs[3])
+
+        best = float("inf")
+        for first in self._iter_mask(remaining_mask):
+            tx, ty = self._pickup_coords[first]
+            euclid = math.hypot(tx - x, ty - y)
+            try:
+                path_dist, _, _ = self._pf.get_distance_to_specific_pickup(x, y, first)
+            except Exception:
+                path_dist = euclid
+
+            if not math.isfinite(path_dist) or path_dist <= 0.0:
+                path_dist = euclid
+
+            ux = (tx - x) / max(1.0, euclid)
+            uy = (ty - y) / max(1.0, euclid)
+            speed_along = vx * ux + vy * uy
+
+            tail_mask = remaining_mask & ~(1 << first)
+            final_pickup = tail_mask == 0
+            radius_discount = _PICKUP_COLLECTION_RADIUS if final_pickup else 0.0
+            route_dist = max(0.0, path_dist - radius_discount)
+            route_dist += self._route_tail[tail_mask][first]
+            route_time = self._route_time_frames(route_dist, speed_along)
+            collection_gap = max(0.0, euclid - radius_discount)
+            gx = x + ux * collection_gap
+            gy = y + uy * collection_gap
+            open_air_time = self._time_to_point_frames(x, y, vx, vy, gx, gy)
+            best = min(best, max(route_time, open_air_time))
+
+        # At least a few frames per pickup are needed to perform distinct
+        # collection events, even in the optimistic model.
+        return max(best, 4.0 * remaining_mask.bit_count())
+
+    def _time_to_point_frames(
+        self,
+        x: float,
+        y: float,
+        vx: float,
+        vy: float,
+        tx: float,
+        ty: float,
     ) -> float:
-        """Physics-aware single-target admissible lower bound (in frames).
+        dx = tx - x
+        dy = ty - y
+        euclid = math.hypot(dx, dy)
+        if euclid <= 1e-9:
+            return 0.0
 
-        Three admissible lower bounds combined with ``max`` (concurrent):
+        ux = dx / euclid
+        uy = dy / euclid
+        v_direct = vx * ux + vy * uy
+        t_direct = _bang_bang_time(v_direct, _A_ANY_MAX, euclid)
 
-        * **t_x** — 1D bang-bang in x under |a_x| ≤ THRUST.
-        * **t_y** — 1D bang-bang in y under asymmetric gravity-aware accel.
-        * **t_path** — bang-bang through the grid pathfinder's wall-routed
-          path distance to the target pickup (handles detour-around-wall
-          cases where the 1D Euclidean bounds are too optimistic).
-
-        All three are valid lower bounds on travel time, so ``max`` of them
-        is also a lower bound. The path-aware term is what prevents the
-        search from sprawling toward Euclidean-closest points that are
-        actually walled off.
-        """
-        x, y = float(obs[0]), float(obs[1])
-        vx, vy = float(obs[2]), float(obs[3])
-        speed = math.hypot(vx, vy)
-        dx = target_x - x
-        dy = target_y - y
-
-        # x-axis bound.
-        v_toward_x = vx if dx >= 0 else -vx
+        v_toward_x = vx if dx >= 0.0 else -vx
         t_x = _bang_bang_time(v_toward_x, _A_X_MAX, abs(dx))
 
-        # y-axis bound, asymmetric in gravity's favored direction.
-        if dy >= 0:
+        if dy >= 0.0:
             t_y = _bang_bang_time(vy, _A_Y_DOWN_MAX, abs(dy))
         else:
             t_y = _bang_bang_time(-vy, _A_Y_UP_MAX, abs(dy))
 
-        # Wall-aware bound: path_dist ≥ Euclidean, so traversing it with
-        # peak omnidirectional accel is also a valid lower bound. Use the
-        # weakest axis accel (_A_Y_UP_MAX = 300) to stay safe.
-        try:
-            path_dist, _, _ = self._pf.get_distance_to_specific_pickup(
-                x, y, target_pickup_idx,
-            )
-        except Exception:
-            path_dist = float("inf")
-        if math.isfinite(path_dist) and path_dist > 0.0:
-            t_path = _bang_bang_time(speed, _A_Y_UP_MAX, path_dist)
+        return max(t_direct, t_x, t_y) / _DT
+
+    def _route_time_frames(self, distance: float, initial_speed: float = 0.0) -> float:
+        if distance <= 0.0:
+            return 0.0
+        v0 = max(0.0, min(_ROUTE_VMAX, initial_speed))
+        accel_dist = max(0.0, (_ROUTE_VMAX * _ROUTE_VMAX - v0 * v0) / (2.0 * _ROUTE_ACCEL))
+        if distance <= accel_dist:
+            seconds = (math.sqrt(v0 * v0 + 2.0 * _ROUTE_ACCEL * distance) - v0) / _ROUTE_ACCEL
         else:
-            t_path = 0.0
+            seconds = (_ROUTE_VMAX - v0) / _ROUTE_ACCEL
+            seconds += (distance - accel_dist) / _ROUTE_VMAX
+        return seconds / _DT
 
-        t_sec = max(t_x, t_y, t_path)
-        return t_sec / _DT
+    def _build_path_pair_matrix(self) -> list[list[float]]:
+        n = len(self._pickup_coords)
+        matrix = [[0.0 for _ in range(n)] for _ in range(n)]
+        for i, (ax, ay) in enumerate(self._pickup_coords):
+            for j, (bx, by) in enumerate(self._pickup_coords):
+                if i == j:
+                    continue
+                try:
+                    dist, _, _ = self._pf.get_distance_to_specific_pickup(ax, ay, j)
+                except Exception:
+                    dist = math.hypot(bx - ax, by - ay)
+                if not math.isfinite(dist) or dist <= 0.0:
+                    dist = math.hypot(bx - ax, by - ay)
+                matrix[i][j] = float(dist)
+        return matrix
 
-    def _expand(
-        self, parent_state, action_idx: int, target_pickup_idx: int,
-    ):
-        """Apply one macro-action. Returns (new_state, obs, collected_target, crashed)."""
-        env = self._env
-        env.load_state(parent_state)
-        pre_states = list(env.get_pickup_states())
-        target_already_collected = pre_states[target_pickup_idx]
-        action = ALL_ACTIONS[action_idx]
+    def _build_route_tail_table(self) -> list[list[float]]:
+        n = len(self._pickup_coords)
+        mask_count = 1 << n
+        tail = [[0.0 for _ in range(n)] for _ in range(mask_count)]
 
-        obs = None
-        crashed = False
-        for _ in range(self._action_repeat):
-            obs, _r, terminated, truncated, info = env.step(action)
-            if info.get("ship_exploded", False):
-                crashed = True
-                break
-            if info.get("level_completed", False):
-                break
-            if terminated or truncated:
-                crashed = True
-                break
+        for mask in range(1, mask_count):
+            for last in range(n):
+                best = float("inf")
+                for nxt in self._iter_mask(mask):
+                    d = self._path_pair[last][nxt] + tail[mask & ~(1 << nxt)][nxt]
+                    if d < best:
+                        best = d
+                tail[mask][last] = best if math.isfinite(best) else 0.0
+        return tail
 
-        if crashed:
-            return None, None, False, True
+    def _remaining_mask(self, pickup_states: list[bool]) -> int:
+        mask = 0
+        for i, collected in enumerate(pickup_states):
+            if not collected:
+                mask |= 1 << i
+        return mask
 
-        post_states = list(env.get_pickup_states())
-        collected_target = (
-            not target_already_collected and post_states[target_pickup_idx]
-        )
-        new_state = env.save_state()
-        return new_state, obs, collected_target, False
+    def _iter_mask(self, mask: int):
+        while mask:
+            bit = mask & -mask
+            yield bit.bit_length() - 1
+            mask ^= bit
 
-    # ------------------------------------------------------------- utilities
+    def _remaining_count(self, bits: int) -> int:
+        return self._total_pickups - bits.bit_count()
 
-    def _reconstruct(
-        self, records: list[_NodeRecord], goal_idx: int,
-    ) -> list[int]:
-        macro: list[int] = []
+    def _nearest_remaining_distance(self, obs, pickup_states: list[bool]) -> float:
+        return self._nearest_uncollected_euclid_from_bits(obs, _pickup_bits(pickup_states))
+
+    def _nearest_uncollected_euclid_from_bits(self, obs, collected_bits: int) -> float:
+        x = float(obs[0])
+        y = float(obs[1])
+        best = float("inf")
+        for i in range(self._total_pickups):
+            if not (collected_bits & (1 << i)):
+                px, py = self._pickup_coords[i]
+                best = min(best, math.hypot(px - x, py - y))
+        return 0.0 if best == float("inf") else best
+
+    def _is_dominated(
+        self,
+        best_seen: dict[tuple, list[tuple[int, float]]],
+        key: tuple,
+        g_frames: int,
+        h_frames: float,
+    ) -> bool:
+        entries = best_seen.get(key)
+        if not entries:
+            return False
+        return any(prev_g <= g_frames and prev_h <= h_frames for prev_g, prev_h in entries)
+
+    def _remember_state(
+        self,
+        best_seen: dict[tuple, list[tuple[int, float]]],
+        key: tuple,
+        g_frames: int,
+        h_frames: float,
+    ) -> None:
+        entries = best_seen.setdefault(key, [])
+        entries[:] = [
+            (prev_g, prev_h)
+            for prev_g, prev_h in entries
+            if not (g_frames <= prev_g and h_frames <= prev_h)
+        ]
+        entries.append((g_frames, h_frames))
+        if len(entries) > 4:
+            entries.sort(key=lambda item: item[0] + self._hw * item[1])
+            del entries[4:]
+
+    def _reconstruct(self, records: list[_TraceEntry], goal_idx: int) -> list[int]:
+        macro: list[tuple[int, int]] = []
         idx = goal_idx
         while idx > 0:
             rec = records[idx]
-            macro.append(rec.action_idx)
+            macro.append((rec.action_idx, rec.repeat))
             idx = rec.parent_idx
         macro.reverse()
+
         frames: list[int] = []
-        for a in macro:
-            frames.extend([a] * self._action_repeat)
+        for action_idx, repeat in macro:
+            frames.extend([action_idx] * repeat)
         return frames
 
     def _validate(self, actions: list[int]) -> None:
         env = self._env
         env.reset()
-        for i, a in enumerate(actions):
-            _obs, _r, terminated, truncated, info = env.step(ALL_ACTIONS[a])
+        for i, action_idx in enumerate(actions):
+            _obs, _r, terminated, truncated, info = env.step(ALL_ACTIONS[action_idx])
             if info.get("ship_exploded", False):
                 print(f"  WARNING: validation crash at frame {i}")
                 return
@@ -492,7 +527,7 @@ class AStarSolver:
             if terminated or truncated:
                 print(f"  WARNING: validation truncated at frame {i}")
                 return
-        if not actions:
-            print("  WARNING: empty trajectory")
-        else:
+        if actions:
             print("  WARNING: validation ran out of actions without completing")
+        else:
+            print("  WARNING: empty trajectory")
