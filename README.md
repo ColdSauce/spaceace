@@ -38,6 +38,9 @@ bash tests/smoke.sh
 
 ## How the AI works
 
+Full design rationale, failure modes, and the improvement playbook live in
+[`docs/SOLVER.md`](docs/SOLVER.md).
+
 Everything lives in `src/solver.rs` (one file) and is orchestrated by
 `scripts/solve.py`:
 

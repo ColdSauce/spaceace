@@ -3,23 +3,44 @@
 Rust game engine + offline "Ace" planner that plays SpaceAce at superhuman
 level by finding tick-perfect action tapes.
 
+**Before working on the AI, read `docs/SOLVER.md`** — it explains the
+design rationale, every failure mode already hit (don't re-hit them), the
+diagnostic loop for improving the solver, and the open problems.
+
+## Hard rules (user rulings)
+
+- **No wall clipping.** Solve in `strict` mode (the default). The engine's
+  every-other-frame collision skip above ~316px/s is exploitable but was
+  ruled out for ghosts. `--allow-clip` is for experiments only.
+- **No human-derived search guidance.** Never seed/corridor/bias the
+  search with human ghost data — the user wants to learn from independent
+  AI lines. Human ghosts are diagnostic benchmarks only.
+- **Keep the game engine intact** (`src/real_*.rs`): all saved tapes and
+  ghosts depend on exact float behavior. The solver's stepper must remain
+  float-op-identical to the engine.
+
 ## Build & Run
 
 ```bash
 # Build the Rust extension (required after any Rust code changes).
 # The DYLD prefix works around Homebrew rustc being linked against LLVM 20
 # while /opt/homebrew/opt/llvm points at LLVM 22 (rustc aborts otherwise).
+# If cargo reports a stale dyld error afterwards: rm target/.rustc_info.json
 export DYLD_LIBRARY_PATH=/opt/homebrew/Cellar/llvm/20.1.8/lib
 uv sync --reinstall-package spaceace-rl
 
 # Solve a level (improves the stored tape/ghost when it finds a faster one)
-uv run python scripts/solve.py --level 7 --budget-min 20
+uv run python scripts/solve.py --level 7 --budget-min 28          # standard
+uv run python scripts/solve.py --level 7 --budget-min 60 --deep   # squeeze harder
 
 # Watch the solved run / replay tapes
 uv run python run.py --agent ace --level 7
 uv run python run.py --agent tas --level 7 --tas-label tas --headless
 
-# Smoke tests (run these to validate changes; they exercise level 7)
+# Race the ghosts in the browser (AI ghost = magenta)
+uv run python -m dashboard    # then open http://localhost:5050/play
+
+# Smoke tests (run to validate changes; they exercise level 7)
 bash tests/smoke.sh
 ```
 
@@ -32,38 +53,39 @@ Always use `uv sync --reinstall-package spaceace-rl` to rebuild.
 - `lib.rs` — PyO3 bindings: `PyGameInstance` (engine), `PyPathfinder`
   (level tooling), `PySolver` (the AI)
 - `real_game.rs` / `real_physics.rs` / `real_collision.rs` /
-  `real_map_parser.rs` — the game. **Keep intact**: ghosts and solved tapes
-  depend on exact physics.
-- `solver.rs` — the entire AI in one file: an exact allocation-free copy of
-  the game step (must stay float-op-identical to real_physics/real_game),
-  parallel beam search (per-pickup Dijkstra fields + exact subset-DP route
-  lower bound, braking-feasibility doom model, mask-stratified selection),
-  warm-started corridor refinement, suffix re-solve, and local-search polish.
+  `real_map_parser.rs` — the game. **Keep intact.**
+- `solver.rs` — the entire AI in one file. Exact stepper, parallel beam
+  search (route-DP heuristic, momentum-aware rank with fly-through credit
+  and turnaround penalty, braking-feasibility doom model, mask-stratified
+  selection), warm-started global/corridor refinement, suffix/prefix
+  re-solves, local-search polish. Design details: `docs/SOLVER.md`.
 
 ### Python (`spaceace/`)
 - `core/env.py` — `SpaceAceDirectEnv` wrapping `PyGameInstance`
 - `core/viz.py` — pygame renderer
-- `agents/` — `ace` (replays/plans solved tapes), `tas` (replays a sidecar),
-  `random`, `human`
+- `agents/` — `ace` (replays/plans solved tapes), `tas` (replays a
+  sidecar), `random`, `human`
 - `ghost_actions.py` — sidecar I/O (`ghost_actions/L{level}_tas.json`,
   ticks at 60/s, action indices 0-5)
-- `scripts/solve.py` — solver driver: portfolio solve → refine/polish/suffix
-  loop → validate on the real engine → save sidecar + dashboard ghosts
+- `scripts/solve.py` — the whole AI workflow in one command: portfolio
+  solve → refine/polish/suffix loop → validate on the real engine → save
+  sidecar + dashboard ghosts
 
 ### Ghosts
-- `dashboard/spaceace_dashboard.db` `ghost_replays` table: best time per
-  (level, ghost_type). `human` rows are the user's records; `tas`/`ai` rows
-  are the AI's. `scripts/solve.py` only overwrites when strictly faster.
+- `dashboard/spaceace_dashboard.db` `ghost_replays`: best time per
+  (level, ghost_type). `human` = the user's records; `tas`/`ai` = the
+  AI's (the web UI renders `ai`). Overwritten only by strictly faster runs.
 - A tape is only saved after an exact validation replay on `PyGameInstance`.
 
-## Solver notes
-- Sim exactness is everything: any change to the Rust engine invalidates all
-  saved tapes. `PySolver.replay()` must agree with `PyGameInstance` replay;
-  the smoke test checks the L7 sidecar for exactly this.
-- `scripts/solve.py --level N --budget-min M` is the whole workflow. It is
-  anytime: rerunning with a bigger budget keeps improving the stored tape.
-- Beam params that matter: `width` (quality ∝ width), `mix`/`proj_div`
-  (velocity reward strength/horizon), `quant_*` (dedup granularity).
+## Solver quick reference
+- `scripts/solve.py --level N --budget-min M` is anytime: rerunning keeps
+  improving the stored tape. `--fresh` ignores the incumbent sidecar.
+- Debug telemetry: `ACE_DEBUG=1` prints per-beam-layer frontier stats.
+- Key knobs: `width` (quality ∝ width), `mix`/`proj_div` (velocity reward
+  strength/horizon), `quant_*` (dedup granularity), `doom_scale` (safety
+  pressure; low inside warm-started refines), `turn_w` (pickup-arrival
+  alignment).
+- Diagnostic loop for improving results: see `docs/SOLVER.md`.
 
 ## Beads Issue Tracker
 
