@@ -133,6 +133,13 @@ pub struct AceSolver {
     n_pickups: usize,
     full_mask: u32,
     spawn: SimState,
+    /// Strict mode: check wall collision every tick instead of honoring the
+    /// engine's every-other-frame skip above ~316 px/s. Strict tapes never
+    /// overlap a wall, and they replay identically on the real engine (the
+    /// engine's checks are a subset of strict's). Non-strict solving may
+    /// thread walls on skipped frames — engine-legal, but it looks like
+    /// clipping and was ruled out for fair ghosts.
+    strict: bool,
 
     // heuristic: per-pickup Dijkstra distance fields on a 10px grid
     hcell: f32,
@@ -142,6 +149,11 @@ pub struct AceSolver {
     // rem[mask * n + p] = length of the shortest pickup-to-pickup path that
     // starts at p and visits every pickup in `mask` (p must be in mask).
     rem: Vec<i32>,
+    // pair[p * n + q] = geodesic distance from pickup p to pickup q (px).
+    pair: Vec<i32>,
+    // next_dir[p * n + q] = unit direction of the route's first step when
+    // leaving pickup p toward pickup q (steepest descent of q's field at p).
+    next_dir: Vec<(f32, f32)>,
 }
 
 pub struct BeamParams {
@@ -163,6 +175,11 @@ pub struct BeamParams {
     /// the reference node always survives — so it can afford near-zero doom
     /// and let raw physics prune, which unlocks expert-speed cornering.
     pub doom_scale: f32,
+    /// Weight of the turnaround penalty charged when the projection collects
+    /// a pickup with velocity misaligned to the next leg. Prevents the beam
+    /// from favoring fast-but-overshooting approaches whose redirect cost
+    /// only becomes visible dozens of layers after the pickup.
+    pub turn_w: f32,
     /// Amplitude (in px) of seeded rank noise — decorrelates ties across
     /// seeds so restarts explore different regions of the search space.
     pub jitter: f32,
@@ -181,6 +198,7 @@ impl Default for BeamParams {
             mix: 0.8,
             proj_div: 700.0,
             doom_scale: 1.0,
+            turn_w: 1.0,
             jitter: 3.0,
         }
     }
@@ -243,13 +261,13 @@ impl Corridor {
 }
 
 impl AceSolver {
-    pub fn from_level(level: usize) -> Result<Self, String> {
+    pub fn from_level(level: usize, strict: bool) -> Result<Self, String> {
         let mut game = RealSpaceAceGame::new();
         game.load_level(level)?;
-        Ok(Self::from_game(&game))
+        Ok(Self::from_game(&game, strict))
     }
 
-    pub fn from_game(game: &RealSpaceAceGame) -> Self {
+    pub fn from_game(game: &RealSpaceAceGame, strict: bool) -> Self {
         let lines: Vec<[f32; 4]> = game
             .get_map_lines()
             .iter()
@@ -342,9 +360,12 @@ impl AceSolver {
             })
             .collect();
 
-        // Pairwise pickup distances (read pickup i's position in pickup j's field).
+        // Pairwise pickup distances (read pickup i's position in pickup j's field)
+        // and the outgoing route direction at each pickup toward each other
+        // pickup (downhill gradient of j's field around i's position).
         let n = n_pickups;
         let mut pair = vec![0i32; n * n];
+        let mut next_dir = vec![(0.0f32, 0.0f32); n * n];
         for i in 0..n {
             for j in 0..n {
                 if i == j {
@@ -352,6 +373,25 @@ impl AceSolver {
                 }
                 let c = cell_of(rows, cols, hmin, hcell, pickups[i].0, pickups[i].1);
                 pair[i * n + j] = spiral_read(&fields[j], rows, cols, c, 6);
+                // Central differences at ±3 cells; fall back to the straight
+                // line between the pickups if the field is flat/unreadable.
+                let probe = 3.0 * hcell;
+                let (px, py) = pickups[i];
+                let dxp = spiral_read(&fields[j], rows, cols, cell_of(rows, cols, hmin, hcell, px + probe, py), 3);
+                let dxm = spiral_read(&fields[j], rows, cols, cell_of(rows, cols, hmin, hcell, px - probe, py), 3);
+                let dyp = spiral_read(&fields[j], rows, cols, cell_of(rows, cols, hmin, hcell, px, py + probe), 3);
+                let dym = spiral_read(&fields[j], rows, cols, cell_of(rows, cols, hmin, hcell, px, py - probe), 3);
+                let mut gx = -((dxp - dxm) as f32);
+                let mut gy = -((dyp - dym) as f32);
+                let norm = (gx * gx + gy * gy).sqrt();
+                if norm < 1e-3 || dxp >= UNREACHABLE || dxm >= UNREACHABLE || dyp >= UNREACHABLE || dym >= UNREACHABLE {
+                    gx = pickups[j].0 - px;
+                    gy = pickups[j].1 - py;
+                    let d = (gx * gx + gy * gy).sqrt().max(1e-3);
+                    next_dir[i * n + j] = (gx / d, gy / d);
+                } else {
+                    next_dir[i * n + j] = (gx / norm, gy / norm);
+                }
             }
         }
 
@@ -389,6 +429,7 @@ impl AceSolver {
             cgrid_min: (min_gx, min_gy),
             cgrid_dims: dims,
             cgrid,
+            strict,
             pickups,
             n_pickups,
             full_mask: if n_pickups == 32 { u32::MAX } else { (1u32 << n_pickups) - 1 },
@@ -398,6 +439,8 @@ impl AceSolver {
             hdims: (rows, cols),
             fields,
             rem,
+            pair,
+            next_dir,
         }
     }
 
@@ -433,11 +476,12 @@ impl AceSolver {
         s.x += s.vx * DT;
         s.y += s.vy * DT;
 
-        // real_physics::should_skip_collision
+        // real_physics::should_skip_collision (parity always tracked so the
+        // state stays engine-identical; strict mode just refuses to use it)
         let speed_sq = s.vx * s.vx + s.vy * s.vy;
         let skip_collision = if speed_sq > 100000.0 {
             s.skip = s.skip.wrapping_add(1);
-            s.skip % 2 != 0
+            !self.strict && s.skip % 2 != 0
         } else {
             false
         };
@@ -940,12 +984,46 @@ impl AceSolver {
         let h_stop = self.h_px(ex, ey, proj_mask) as f32;
         let h_stop = if h_stop >= UNREACHABLE as f32 { h_now } else { h_stop };
 
+        // Turnaround charge: arriving at a pickup with velocity that doesn't
+        // point down the next leg costs v_wasted^2 / 2a to redirect. Without
+        // this, the beam picks whoever reaches the pickup first — usually a
+        // fast overshooting approach that then scrambles back.
+        let mut turn_pen = 0.0f32;
+        let collected_now = proj_mask & !s.mask;
+        if collected_now != 0 && proj_mask != self.full_mask && p.turn_w > 0.0 {
+            let n = self.n_pickups;
+            let pi = collected_now.trailing_zeros() as usize;
+            let remaining = (self.full_mask & !proj_mask) as usize;
+            let mut best_cost = i32::MAX;
+            let mut best_q = usize::MAX;
+            let mut bits = remaining;
+            while bits != 0 {
+                let q = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                let cost = self.pair[pi * n + q].saturating_add(self.rem[remaining * n + q]);
+                if cost < best_cost {
+                    best_cost = cost;
+                    best_q = q;
+                }
+            }
+            if best_q != usize::MAX {
+                let (dx, dy) = self.next_dir[pi * n + best_q];
+                let vd = s.vx * dx + s.vy * dy;
+                let waste_sq = if vd <= 0.0 {
+                    speed * speed
+                } else {
+                    (speed * speed - vd * vd).max(0.0)
+                };
+                turn_pen = p.turn_w * waste_sq / 700.0;
+            }
+        }
+
         let jitter = if p.jitter > 0.0 {
             (mix64(key ^ p.seed) & 0xFFFF) as f32 / 65535.0 * p.jitter
         } else {
             0.0
         };
-        (1.0 - p.mix) * h_now + p.mix * h_stop + doom + jitter
+        (1.0 - p.mix) * h_now + p.mix * h_stop + doom + turn_pen + jitter
     }
 
     /// Full solve from spawn.

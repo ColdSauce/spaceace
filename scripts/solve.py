@@ -127,10 +127,14 @@ def main() -> int:
     ap.add_argument("--fresh", action="store_true", help="ignore the existing sidecar")
     ap.add_argument("--deep", action="store_true",
                     help="finer/wider refinement schedule for squeezing an already-good tape")
+    ap.add_argument("--allow-clip", action="store_true",
+                    help="model the engine's high-speed collision skip exactly, allowing "
+                         "tapes that thread walls on skipped frames (engine-legal, but "
+                         "looks like clipping; off by default)")
     args = ap.parse_args()
 
     level = args.level
-    solver = spaceace_rl.PySolver(level)
+    solver = spaceace_rl.PySolver(level, strict=not args.allow_clip)
     href = human_time(level)
     print(f"L{level}: {solver.n_pickups()} pickups; human ghost: {href and round(href, 3)}s")
 
