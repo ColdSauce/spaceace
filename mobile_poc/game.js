@@ -153,7 +153,9 @@ const state = {
   screen: 'menu',            // menu | playing | dead | won
   levelKey: null,
   sim: null,
-  controlMode: localStorage.getItem('sa_mode') || 'dual',    // dual | slide | swoop | classic
+  controlMode: localStorage.getItem('sa_mode') || 'burn',    // burn | dual | slide | swoop | classic
+  plan: null,                // burn mode: committed burn {heading, burnLeft}
+  lastControls: [0, 0, 0],   // controls actually executed on the last tick
   cam: { x: 0, y: 0, zoom: 0.5 },
   particles: [],
   ghost: null,               // best-run tape being replayed: [[x,y,rot],...]
@@ -182,6 +184,7 @@ const SWOOP_BURN_R = 110;   // swoop mode: finger farther than this = thrust
 const keys = new Set();
 
 function zoneFor(x, y) {
+  if (state.controlMode === 'burn') return 'aim';
   if (state.controlMode === 'dual') return x < W * 0.5 ? 'rot' : 'thrust';
   if (state.controlMode !== 'classic') return 'steer';
   if (y < H * 0.62) return 'steer';                 // upper area: nothing in classic
@@ -200,6 +203,8 @@ function onTouch(e) {
       const rec = touches.get(t.identifier);
       if (rec) { rec.x = t.clientX; rec.y = t.clientY; }
     } else {
+      const rec = touches.get(t.identifier);
+      if (rec && rec.zone === 'aim' && state.screen === 'playing') commitBurn(rec);
       touches.delete(t.identifier);
     }
   }
@@ -217,7 +222,12 @@ canvas.addEventListener('mousedown', e => {
 canvas.addEventListener('mousemove', e => {
   if (mouseDown) { const r = touches.get('m'); if (r) { r.x = e.clientX; r.y = e.clientY; } }
 });
-window.addEventListener('mouseup', () => { mouseDown = false; touches.delete('m'); });
+window.addEventListener('mouseup', () => {
+  mouseDown = false;
+  const rec = touches.get('m');
+  if (rec && rec.zone === 'aim' && state.screen === 'playing') commitBurn(rec);
+  touches.delete('m');
+});
 window.addEventListener('keydown', e => keys.add(e.code));
 window.addEventListener('keyup', e => keys.delete(e.code));
 
@@ -237,7 +247,10 @@ function currentControls() {
   let right = keys.has('ArrowRight') || keys.has('KeyD');
   let thrust = keys.has('ArrowUp') || keys.has('KeyW') || keys.has('Space');
 
-  if (state.controlMode === 'classic') {
+  if (state.controlMode === 'burn') {
+    // Touches are handled by the burn planner, not here — this branch
+    // only passes through the keyboard for desktop testing.
+  } else if (state.controlMode === 'classic') {
     for (const t of touches.values()) {
       if (t.zone === 'left') left = true;
       else if (t.zone === 'right') right = true;
@@ -291,6 +304,60 @@ function currentControls() {
   return [left, right, thrust];
 }
 
+// -------------------------------------------------------- burn-mode planner
+// Structural mobile redesign: instead of holding keys in real time, you
+// PLAN burns. Dragging (in slow-mo) aims a burn — direction = thrust
+// direction, length = burn duration. On release the ship physically
+// rotates to the heading at the real 4.363 rad/s, then thrusts for the
+// planned ticks; between burns it coasts ballistically. The clock is
+// sim-time, so slow-mo aiming is free but the resulting run is still a
+// legitimate 60 Hz action tape on the exact engine.
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+// Turn a drag gesture into a burn plan (null = too short, i.e. cancel-tap).
+function dragPlan(rec) {
+  const dx = rec.x - rec.sx, dy = rec.y - rec.sy;
+  const len = Math.hypot(dx, dy);
+  if (len < 18) return null;
+  return {
+    heading: Math.atan2(dy, dx) + Math.PI / 2,             // 0 rad = up
+    burnLeft: Math.max(6, Math.min(90, Math.round((len - 18) / 5))),
+  };
+}
+function commitBurn(rec) { state.plan = dragPlan(rec); }
+
+// Per-tick controller: rotate toward plan.heading, then burn plan.burnLeft
+// ticks. Mutates plan — pass a copy for prediction.
+function burnControls(sim, plan) {
+  if (!plan) return [0, 0, 0];
+  const diff = wrapAngle(plan.heading - sim.rot);
+  const step = ROTATION_SPEED * TICK;
+  if (Math.abs(diff) > step * 0.6) return [diff < 0 ? 1 : 0, diff > 0 ? 1 : 0, 0];
+  if (plan.burnLeft > 0) { plan.burnLeft--; return [0, 0, 1]; }
+  return [0, 0, 0];
+}
+
+// Forward-simulate the real physics (walls included) to preview a plan.
+function predictPath(plan, ticks = 240) {
+  const c = Object.create(Sim.prototype);
+  Object.assign(c, state.sim);
+  c.collected = state.sim.collected.slice();
+  const p = plan ? { ...plan } : null;
+  const pts = [];
+  for (let i = 0; i < ticks; i++) {
+    const [l, r, t] = burnControls(c, p);
+    c.step(l, r, t);
+    if (i % 4 === 0) pts.push([c.x, c.y]);
+    if (c.exploded || c.completed) break;
+  }
+  return { pts, crashed: c.exploded, end: [c.x, c.y] };
+}
+
 // ------------------------------------------------------------------ camera
 function worldToScreen(wx, wy) {
   return [(wx - state.cam.x) * state.cam.zoom + W / 2,
@@ -327,6 +394,8 @@ function startLevel(key) {
   state.particles = [];
   state.tape = [];
   state.newBest = false;
+  state.plan = null;
+  state.lastControls = [0, 0, 0];
   const best = loadBest(key);
   state.ghost = best && best.tape && best.tape.length ? best.tape : null;
   updateCamera(true);
@@ -356,7 +425,12 @@ function pickupFx(x, y) {
 let acc = 0, lastT = performance.now();
 function tickSim() {
   const sim = state.sim;
-  const [l, r, th] = currentControls();
+  let controls = currentControls();
+  if (state.controlMode === 'burn' && !controls[0] && !controls[1] && !controls[2]) {
+    controls = burnControls(sim, state.plan);   // keyboard (if any) overrides the plan
+  }
+  state.lastControls = controls;
+  const [l, r, th] = controls;
   sim.step(l, r, th);
   state.tape.push([Math.round(sim.x * 10) / 10, Math.round(sim.y * 10) / 10, Math.round(sim.rot * 1000) / 1000]);
   if (sim.justCollected !== null) {
@@ -546,6 +620,52 @@ function drawHUD() {
   button(12, 12, 44, 44, '✕', () => { state.screen = 'menu'; }, { stroke: 'rgba(0,255,65,0.5)' });
   button(W - 56, 12, 44, 44, '↺', () => startLevel(state.levelKey), { stroke: 'rgba(0,255,65,0.5)' });
 
+  if (state.controlMode === 'burn' && state.screen === 'playing') {
+    let aim = null;
+    for (const t of touches.values()) if (t.zone === 'aim') { aim = t; break; }
+    const draft = aim ? dragPlan(aim) : null;
+    // Predicted trajectory of what will actually happen (draft while
+    // aiming, else the committed plan, else the ballistic coast).
+    const pred = predictPath(draft || (state.plan ? { ...state.plan } : null));
+    ctx.save();
+    ctx.fillStyle = draft ? 'rgba(0,255,255,0.9)' : 'rgba(0,255,255,0.45)';
+    for (const [px, py] of pred.pts) {
+      const [sx, sy] = worldToScreen(px, py);
+      ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3);
+    }
+    if (pred.crashed) {
+      const [ex, ey] = worldToScreen(...pred.end);
+      ctx.strokeStyle = '#ff3030';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(ex - 9, ey - 9); ctx.lineTo(ex + 9, ey + 9);
+      ctx.moveTo(ex + 9, ey - 9); ctx.lineTo(ex - 9, ey + 9);
+      ctx.stroke();
+    }
+    if (draft) {
+      // burn arrow: direction + length of the planned burn
+      const [sx, sy] = worldToScreen(state.sim.x, state.sim.y);
+      const a = draft.heading - Math.PI / 2;
+      const len = 30 + draft.burnLeft * 1.6;
+      const ex = sx + Math.cos(a) * len, ey = sy + Math.sin(a) * len;
+      ctx.strokeStyle = '#ffb300';
+      ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 8;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - 12 * Math.cos(a - 0.45), ey - 12 * Math.sin(a - 0.45));
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - 12 * Math.cos(a + 0.45), ey - 12 * Math.sin(a + 0.45));
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#ffb300';
+      ctx.font = '600 13px -apple-system, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('SLOW-MO · release to burn · tap to cancel', W / 2, H - 30);
+    }
+    ctx.restore();
+  }
   if (state.screen === 'playing' && (state.controlMode === 'slide' || state.controlMode === 'dual')) {
     // virtual-stick indicators: anchor at press point, dot at finger offset
     ctx.save();
@@ -645,14 +765,16 @@ function drawMenu() {
   }
 
   by += 8;
-  const MODES = ['dual', 'slide', 'swoop', 'classic'];
+  const MODES = ['burn', 'dual', 'slide', 'swoop', 'classic'];
   const MODE_LABEL = {
+    burn: 'Controls: BURN (drag to plan burns)',
     dual: 'Controls: DUAL (left turns · right burns)',
     slide: 'Controls: SLIDE (thrust + slide to turn)',
     swoop: 'Controls: SWOOP (steer toward finger)',
     classic: 'Controls: CLASSIC (buttons)',
   };
   const MODE_HINT = {
+    burn: 'Drag in slow-mo to aim a burn (longer drag = longer burn), release to fire, tap to cancel. Coast between burns.',
     dual: 'Left half: slide left/right of your press point to rotate. Right half: hold to thrust. Fully independent.',
     slide: 'Hold anywhere to thrust. Slide up/down from where you pressed to rotate. Release to coast.',
     swoop: 'Hold: ship aims at your finger. Close to the ship = aim only; farther out = aim + thrust.',
@@ -721,7 +843,13 @@ function frame(now) {
   if (state.screen === 'menu') { drawMenu(); return; }
 
   if (state.screen === 'playing') {
-    acc += dtReal;
+    // Burn mode: dilate time while aiming. The timer counts sim ticks, so
+    // slow-mo costs nothing — it's a planning window, not a cheat.
+    let aiming = false;
+    if (state.controlMode === 'burn') {
+      for (const t of touches.values()) if (t.zone === 'aim') { aiming = true; break; }
+    }
+    acc += dtReal * (aiming ? 0.12 : 1);
     while (acc >= TICK && state.screen === 'playing') {
       acc -= TICK;
       tickSim();
@@ -737,7 +865,7 @@ function frame(now) {
   }
 
   if (!state.sim.exploded) {
-    const [, , th] = state.screen === 'playing' ? currentControls() : [0, 0, false];
+    const th = state.screen === 'playing' && state.lastControls[2];
     drawShipAt(state.sim.x, state.sim.y, state.sim.rot, '#00ff41', 1, th);
   }
   drawParticles(dtReal);

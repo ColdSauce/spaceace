@@ -19,21 +19,44 @@ Add to Home Screen on iOS/Android for a fullscreen app-like experience
 ## What "SpaceAce on mobile" looks like
 
 The desktop game is a tick-precision keyboard game about momentum. Mobile
-can't be about frame-perfect inputs — it has to be about **flow**: the
-swooping, gravity-surfing feel that makes optimal SpaceAce lines beautiful.
-The POC bets on three things:
+can't be about frame-perfect inputs. After trying direct-control retrofits
+(see the alternate modes below), the POC's answer is a **structural**
+change: keep the physics, change *when decisions are made*.
 
-1. **"Dual" controls** (default): left half of the screen is a horizontal
-   rotation stick (slide left/right of your press point), right half is
-   hold-to-thrust. Rotation and thrust are fully independent — SpaceAce
-   play is coast → reorient → burn, so rotating *without* thrusting is
-   the core verb and this scheme gives it a dedicated thumb, mirroring
-   the desktop keys. Three alternates are one tap away: "Slide" (hold to
-   thrust + vertical slide to rotate), "Swoop" (one thumb: ship aims at
-   your finger; close to the ship = aim only, farther = aim + thrust),
-   and "Classic" (rotate/rotate/thrust buttons). Every mode is still
-   rate-limited by the engine's real 4.363 rad/s rotation — the schemes
-   change *how you express* inputs, not what the ship can do.
+### Burn mode (default) — from execution to planning
+
+Touch the screen and time dilates to 12%. Drag to aim a **burn**:
+direction = thrust direction, length = burn duration, with a live
+predicted trajectory simulated by the real physics (walls included — a
+red ✕ marks where a plan ends in a crash). Release, and time resumes
+while the ship *physically* rotates to the heading at the real
+4.363 rad/s and burns for the planned ticks. Between burns it coasts
+ballistically; tap to cancel a plan. The prediction is exact, not an
+approximation — the same `Sim` stepped forward, so what you see is what
+happens.
+
+Two properties make this the right structural move:
+
+- **The clock counts sim ticks, not wall time.** Slow-mo aiming is free
+  but doesn't improve your time, so every mobile run is still a
+  legitimate 60 Hz action tape on the unmodified engine — mobile times,
+  desktop times, and Ace-solver ghosts all stay comparable.
+- **It's the solver's own game.** Planning burns against gravity is
+  literally what the Ace planner does; the human gets the same verb with
+  a thumb. Touch is bad at held precision and great at deliberate
+  drag-and-release — this plays to that instead of fighting it.
+
+The POC also bets on three things that hold in every mode:
+
+1. **Direct-control modes for purists**, one tap away in the menu:
+   "Dual" (left half = horizontal rotation stick, right half =
+   hold-to-thrust — fully independent, mirrors the desktop keys),
+   "Slide" (hold to thrust + vertical slide to rotate), "Swoop" (one
+   thumb: ship aims at your finger; close to the ship = aim only,
+   farther = aim + thrust), and "Classic" (rotate/rotate/thrust
+   buttons). Every mode, Burn included, is rate-limited by the engine's
+   real 4.363 rad/s rotation — the schemes change *how you express*
+   inputs, not what the ship can do.
 2. **Race your ghost.** Every personal best is recorded and replayed as a
    translucent magenta ship on your next attempt — the core loop of this
    whole project (human vs. Ace ghosts) is *natively* a mobile hook.
