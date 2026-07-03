@@ -1845,6 +1845,19 @@ const BAND_REPS: [f32; 11] = [
 const N_BAND: usize = BAND_REPS.len();
 /// Time for a full prograde<->retrograde flip at 4.363 rad/s.
 const FLIP_T: f32 = PI / ROTATION_SPEED;
+/// Coarse speed-band groups for hybrid chaining (band index ranges):
+/// crawl (0-1), slow (2-4), cruise (5-7), fast (8+).
+const N_BGROUP: usize = 4;
+
+#[inline]
+fn bgroup_of(band: usize) -> usize {
+    match band {
+        0..=1 => 0,
+        2..=4 => 1,
+        5..=7 => 2,
+        _ => 3,
+    }
+}
 /// Wall inflation for lattice clearance (px): ship half-wingspan plus margin.
 const LAT_INFLATION: f32 = 26.0;
 
@@ -1910,10 +1923,20 @@ struct TimeLattice {
     fields: Vec<Vec<f32>>,
     exact_subsets: bool,
     n_pickups: usize,
-    /// Hybrid mode: rem_t[mask * n + p] = time (s) of the shortest
-    /// pickup-to-pickup tour starting at p visiting all of mask (p ∈ mask),
-    /// built from pair times read out of the single-pickup fields.
+    /// Hybrid mode: rem_t[((mask * n + p) * N_HEAD + h_in) * N_BGROUP + g] =
+    /// time (s) of the shortest pickup-to-pickup tour starting at p (arrived
+    /// with velocity heading h_in at coarse speed-band group g) visiting all
+    /// of mask (p ∈ mask). Conditioning the first hop on arrival heading AND
+    /// speed prices turnarounds honestly: heading-only chaining took the
+    /// best band, so fast misaligned approaches ranked optimistically until
+    /// the collection tick revealed their true continuation cost — the beam
+    /// then switched to slow-arriving lineages, braking to a crawl at
+    /// almost every pickup (L3: 37-74 px/s collections, 46-82% speed dips).
     rem_t: Vec<f32>,
+    /// Hybrid mode: first_bin[cell * n + p] = heading bin of the straight
+    /// line from the cell to pickup p (arrival-heading estimate for the
+    /// first chained hop).
+    first_bin: Vec<u8>,
 }
 
 #[inline]
@@ -2116,6 +2139,7 @@ impl TimeLattice {
             exact_subsets,
             n_pickups: pickups.len(),
             rem_t: Vec::new(),
+            first_bin: Vec::new(),
         };
 
         // --- per-cell template validity (geometry only, field-independent) ----
@@ -2171,10 +2195,13 @@ impl TimeLattice {
                 .map(|p| lat.build_field(1usize << p, pickups, &empty))
                 .collect();
             lat.fields = fields;
-            // pair_t[p][q]: best time from touching p (any velocity state at
-            // p's cell) to touching q. Optimistic — assumes the arrival
-            // state at p is whatever departs best toward q.
-            let mut pair_t = vec![f32::INFINITY; n * n];
+            // pair_t_h[((p*n+q)*N_HEAD + h_in)*N_BGROUP + g]: time from
+            // touching p with velocity heading h_in at speed group g, to
+            // touching q. Reading fields[q] at p's cell AT THAT HEADING AND
+            // SPEED prices the turnaround physically (the field's optimal
+            // policy from a fast wrong-way arrival includes the flip/arc/
+            // brake it actually costs).
+            let mut pair_t_h = vec![f32::INFINITY; n * n * N_HEAD * N_BGROUP];
             for p in 0..n {
                 for q in 0..n {
                     if p == q {
@@ -2183,41 +2210,63 @@ impl TimeLattice {
                     let c0 = (((pickups[p].0 - lat.min.0) / LAT_CELL) as i64).clamp(0, lat.cols as i64 - 1);
                     let r0 = (((pickups[p].1 - lat.min.1) / LAT_CELL) as i64).clamp(0, lat.rows as i64 - 1);
                     let field = &lat.fields[q];
-                    let mut best = f32::INFINITY;
-                    'spiral: for rad in 0..=3i64 {
-                        for dr in -rad..=rad {
-                            for dc in -rad..=rad {
-                                if dr.abs() != rad && dc.abs() != rad {
-                                    continue;
-                                }
-                                let r = r0 + dr;
-                                let c = c0 + dc;
-                                if r < 0 || c < 0 || r >= lat.rows as i64 || c >= lat.cols as i64 {
-                                    continue;
-                                }
-                                for h in 0..N_HEAD {
-                                    for b in 0..N_BAND {
-                                        for post in 0..2 {
-                                            let v = field[lat.node_idx(r as usize, c as usize, h, b, post)];
-                                            if v < best {
-                                                best = v;
+                    for h in 0..N_HEAD {
+                        for g in 0..N_BGROUP {
+                            let mut best = f32::INFINITY;
+                            'spiral: for rad in 0..=3i64 {
+                                for dr in -rad..=rad {
+                                    for dc in -rad..=rad {
+                                        if dr.abs() != rad && dc.abs() != rad {
+                                            continue;
+                                        }
+                                        let r = r0 + dr;
+                                        let c = c0 + dc;
+                                        if r < 0 || c < 0 || r >= lat.rows as i64 || c >= lat.cols as i64 {
+                                            continue;
+                                        }
+                                        for b in 0..N_BAND {
+                                            if bgroup_of(b) != g {
+                                                continue;
+                                            }
+                                            for post in 0..2 {
+                                                let v = field[lat.node_idx(r as usize, c as usize, h, b, post)];
+                                                if v < best {
+                                                    best = v;
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                if best.is_finite() {
+                                    break 'spiral;
+                                }
                             }
-                        }
-                        if best.is_finite() {
-                            break 'spiral;
+                            pair_t_h[((p * n + q) * N_HEAD + h) * N_BGROUP + g] = best;
                         }
                     }
-                    pair_t[p * n + q] = best;
                 }
             }
+            // Arrival-heading estimate for hop p->q: the straight-line
+            // direction (exact for direct legs; curved legs get an
+            // approximation, still far tighter than min-over-all-headings).
+            let hbin = |dx: f32, dy: f32| -> usize {
+                ((dy.atan2(dx) / (2.0 * PI / N_HEAD as f32)).round() as i32)
+                    .rem_euclid(N_HEAD as i32) as usize
+            };
             let full = (1usize << n) - 1;
-            let mut rem_t = vec![f32::INFINITY; (full + 1) * n];
+            // rem_t is band-group-indexed on its FIRST hop; deeper hops use
+            // rem_min (the group-minimum) — arrival speeds beyond one hop
+            // ahead aren't statically knowable, and it's the first hop that
+            // creates the brake-at-pickup bait.
+            let mut rem_t = vec![f32::INFINITY; (full + 1) * n * N_HEAD * N_BGROUP];
+            let mut rem_min = vec![f32::INFINITY; (full + 1) * n * N_HEAD];
             for p in 0..n {
-                rem_t[(1usize << p) * n + p] = 0.0;
+                for h in 0..N_HEAD {
+                    rem_min[((1usize << p) * n + p) * N_HEAD + h] = 0.0;
+                    for g in 0..N_BGROUP {
+                        rem_t[(((1usize << p) * n + p) * N_HEAD + h) * N_BGROUP + g] = 0.0;
+                    }
+                }
             }
             for mask in 1..=full {
                 if mask.count_ones() < 2 {
@@ -2228,20 +2277,44 @@ impl TimeLattice {
                         continue;
                     }
                     let rest = mask ^ (1 << p);
-                    let mut best = f32::INFINITY;
-                    for q in 0..n {
-                        if rest & (1 << q) == 0 {
-                            continue;
+                    for h_in in 0..N_HEAD {
+                        let mut best_min = f32::INFINITY;
+                        for g in 0..N_BGROUP {
+                            let mut best = f32::INFINITY;
+                            for q in 0..n {
+                                if rest & (1 << q) == 0 {
+                                    continue;
+                                }
+                                let h_arr = hbin(pickups[q].0 - pickups[p].0, pickups[q].1 - pickups[p].1);
+                                let v = pair_t_h[((p * n + q) * N_HEAD + h_in) * N_BGROUP + g]
+                                    + rem_min[(rest * n + q) * N_HEAD + h_arr];
+                                if v < best {
+                                    best = v;
+                                }
+                            }
+                            rem_t[((mask * n + p) * N_HEAD + h_in) * N_BGROUP + g] = best;
+                            if best < best_min {
+                                best_min = best;
+                            }
                         }
-                        let v = pair_t[p * n + q] + rem_t[rest * n + q];
-                        if v < best {
-                            best = v;
-                        }
+                        rem_min[(mask * n + p) * N_HEAD + h_in] = best_min;
                     }
-                    rem_t[mask * n + p] = best;
                 }
             }
             lat.rem_t = rem_t;
+            // Per-cell straight-line heading to each pickup (first-hop
+            // arrival estimate for eta chaining).
+            let mut first_bin = vec![0u8; lat.rows * lat.cols * n];
+            for r in 0..lat.rows {
+                for c in 0..lat.cols {
+                    let cx = lat.min.0 + (c as f32 + 0.5) * LAT_CELL;
+                    let cy = lat.min.1 + (r as f32 + 0.5) * LAT_CELL;
+                    for (pi, &(px, py)) in pickups.iter().enumerate() {
+                        first_bin[(r * lat.cols + c) * n + pi] = hbin(px - cx, py - cy) as u8;
+                    }
+                }
+            }
+            lat.first_bin = first_bin;
         }
         lat
     }
@@ -2333,19 +2406,27 @@ impl TimeLattice {
     }
 
     /// Value at one node for a remaining set: exact-subset field lookup, or
-    /// the hybrid chain min_p [T_p(node) + rem_t[remaining][p]].
+    /// the heading+speed-coupled hybrid chain
+    /// min_p [T_p(node) + rem_t[remaining][p][arrival heading][band group]].
+    /// The node's own band group proxies the arrival speed at p — exact in
+    /// the bait zone near a collection (current speed ≈ arrival speed),
+    /// noisy far away where the chain term is second-order anyway.
     #[inline]
     fn node_value(&self, node: usize, remaining: usize) -> f32 {
         if self.exact_subsets {
             return self.fields[remaining][node];
         }
         let n = self.n_pickups;
+        let cell = node / (2 * N_BAND * N_HEAD);
+        let g = bgroup_of((node / 2) % N_BAND);
         let mut best = f32::INFINITY;
         let mut bits = remaining;
         while bits != 0 {
             let p = bits.trailing_zeros() as usize;
             bits &= bits - 1;
-            let v = self.fields[p][node] + self.rem_t[remaining * n + p];
+            let h_arr = self.first_bin[cell * n + p] as usize;
+            let v = self.fields[p][node]
+                + self.rem_t[((remaining * n + p) * N_HEAD + h_arr) * N_BGROUP + g];
             if v < best {
                 best = v;
             }

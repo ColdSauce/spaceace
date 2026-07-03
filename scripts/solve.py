@@ -266,9 +266,24 @@ def main() -> int:
             if ticks < len(best):
                 best = list(tape[:ticks])
         elif kind == "suffix":
-            for frac in (0.75, 0.5, 0.25):
-                r = solver.resolve_suffix(bytes(best), int(len(best) * frac),
-                                          width=args.width, seed=round_idx * 13 + int(frac * 10),
+            # Aim suffix re-solves at the legs with the most kinematic slack
+            # (audit_tape's floor model); fall back to fixed fractions when
+            # the audit can't run. Targeted suffixes attack exactly the
+            # segments where time is provably hiding.
+            targets: list[int] = []
+            try:
+                from audit_tape import audit as _audit
+                rep = _audit(level, best, probe_orders=0, quiet=True)
+                ranked = sorted(rep["legs"], key=lambda l: -(l["actual_s"] - l["floor_s"]))
+                targets = [l["start_tick"] for l in ranked[:2] if 0 < l["start_tick"] < len(best) - 60]
+            except Exception as e:
+                print(f"  [audit] unavailable ({e}); using fixed fractions", flush=True)
+            if not targets:
+                targets = [int(len(best) * f) for f in (0.75, 0.5)]
+            targets.append(int(len(best) * 0.25))
+            for ti, from_tick in enumerate(targets):
+                r = solver.resolve_suffix(bytes(best), from_tick,
+                                          width=args.width, seed=round_idx * 13 + ti,
                                           mix=1.0, proj_div=300.0, order=order, **kw)
                 if r and len(r) < len(best):
                     best = list(r)
@@ -302,6 +317,13 @@ def main() -> int:
     if not args.no_save:
         write_sidecar_if_best(level, "tas", best, ticks)
         save_ghost_rows(level, best, ticks, [s.strip() for s in args.labels.split(",") if s.strip()])
+
+    # Where is the remaining time hiding? (read-only report)
+    try:
+        from audit_tape import audit as _audit
+        _audit(level, best, probe_orders=0, quiet=False)
+    except Exception as e:
+        print(f"[audit] skipped: {e}")
     return 0
 
 
