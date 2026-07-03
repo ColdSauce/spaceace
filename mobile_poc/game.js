@@ -153,7 +153,7 @@ const state = {
   screen: 'menu',            // menu | playing | dead | won
   levelKey: null,
   sim: null,
-  controlMode: localStorage.getItem('sa_mode') || 'slide',   // slide | swoop | classic
+  controlMode: localStorage.getItem('sa_mode') || 'dual',    // dual | slide | swoop | classic
   cam: { x: 0, y: 0, zoom: 0.5 },
   particles: [],
   ghost: null,               // best-run tape being replayed: [[x,y,rot],...]
@@ -176,11 +176,13 @@ function saveBest(k, time, tape) {
 }
 
 // ------------------------------------------------------------------- input
-// touches: map id -> {x, y, zone}
+// touches: map id -> {x, y, sx, sy, zone}
 const touches = new Map();
+const SWOOP_BURN_R = 110;   // swoop mode: finger farther than this = thrust
 const keys = new Set();
 
 function zoneFor(x, y) {
+  if (state.controlMode === 'dual') return x < W * 0.5 ? 'rot' : 'thrust';
   if (state.controlMode !== 'classic') return 'steer';
   if (y < H * 0.62) return 'steer';                 // upper area: nothing in classic
   if (x < W * 0.25) return 'left';
@@ -241,6 +243,17 @@ function currentControls() {
       else if (t.zone === 'right') right = true;
       else if (t.zone === 'thrust') thrust = true;
     }
+  } else if (state.controlMode === 'dual') {
+    // Dual thumbs: left half is a horizontal rotation stick (slide left/
+    // right of your press point), right half is hold-to-thrust. Rotation
+    // and thrust are fully independent, like the desktop keys.
+    for (const t of touches.values()) {
+      if (t.zone === 'thrust') { thrust = true; continue; }
+      if (t.zone !== 'rot') continue;
+      const dx = t.x - t.sx;
+      if (dx < -12) left = true;
+      else if (dx > 12) right = true;
+    }
   } else if (state.controlMode === 'slide') {
     // Slide: holding thrusts; sliding the finger up/down from where you
     // pressed rotates (up = counterclockwise, down = clockwise) — a
@@ -255,13 +268,16 @@ function currentControls() {
     }
   } else {
     // Swoop: hold anywhere — ship steers toward your finger (rotation still
-    // rate-limited by the engine's 4.363 rad/s) and thrusts while held.
+    // rate-limited by the engine's 4.363 rad/s). Finger close to the ship
+    // aims only; beyond SWOOP_BURN_R it also thrusts, so distance is the
+    // throttle switch and you can reorient while coasting.
     let steer = null;
     for (const t of touches.values()) { steer = t; break; }
     if (steer && state.sim) {
       const [sx, sy] = worldToScreen(state.sim.x, state.sim.y);
       const dx = steer.x - sx, dy = steer.y - sy;
-      if (dx * dx + dy * dy > 24 * 24) {          // deadzone right on the ship
+      const d2 = dx * dx + dy * dy;
+      if (d2 > 24 * 24) {                          // deadzone right on the ship
         const want = Math.atan2(dy, dx) + Math.PI / 2;   // heading with 0 = up
         let diff = want - state.sim.rot;
         while (diff > Math.PI) diff -= 2 * Math.PI;
@@ -269,7 +285,7 @@ function currentControls() {
         if (diff > 0.02) right = true;
         else if (diff < -0.02) left = true;
       }
-      thrust = true;
+      thrust = d2 > SWOOP_BURN_R * SWOOP_BURN_R;
     }
   }
   return [left, right, thrust];
@@ -530,22 +546,42 @@ function drawHUD() {
   button(12, 12, 44, 44, '✕', () => { state.screen = 'menu'; }, { stroke: 'rgba(0,255,65,0.5)' });
   button(W - 56, 12, 44, 44, '↺', () => startLevel(state.levelKey), { stroke: 'rgba(0,255,65,0.5)' });
 
-  if (state.controlMode === 'slide' && state.screen === 'playing') {
-    // virtual-stick indicator: anchor at press point, dot at finger offset
-    let t0 = null;
-    for (const t of touches.values()) { t0 = t; break; }
-    if (t0) {
-      ctx.save();
+  if (state.screen === 'playing' && (state.controlMode === 'slide' || state.controlMode === 'dual')) {
+    // virtual-stick indicators: anchor at press point, dot at finger offset
+    ctx.save();
+    for (const t of touches.values()) {
+      if (state.controlMode === 'dual' && t.zone === 'thrust') {
+        ctx.strokeStyle = 'rgba(255,179,0,0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(t.x, t.y, 26, 0, 7); ctx.stroke();     // burn marker
+        continue;
+      }
+      const horiz = state.controlMode === 'dual';
       ctx.strokeStyle = 'rgba(0,255,255,0.35)';
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(t0.sx, t0.sy - 60); ctx.lineTo(t0.sx, t0.sy + 60); ctx.stroke();
+      ctx.beginPath();
+      if (horiz) { ctx.moveTo(t.sx - 60, t.sy); ctx.lineTo(t.sx + 60, t.sy); }
+      else { ctx.moveTo(t.sx, t.sy - 60); ctx.lineTo(t.sx, t.sy + 60); }
+      ctx.stroke();
       ctx.strokeStyle = 'rgba(0,255,255,0.5)';
-      ctx.beginPath(); ctx.arc(t0.sx, t0.sy, 14, 0, 7); ctx.stroke();   // deadzone ring
+      ctx.beginPath(); ctx.arc(t.sx, t.sy, horiz ? 12 : 14, 0, 7); ctx.stroke();   // deadzone ring
       ctx.fillStyle = 'rgba(0,255,255,0.8)';
-      const dy = Math.max(-60, Math.min(60, t0.y - t0.sy));
-      ctx.beginPath(); ctx.arc(t0.sx, t0.sy + dy, 8, 0, 7); ctx.fill();
-      ctx.restore();
+      const off = Math.max(-60, Math.min(60, horiz ? t.x - t.sx : t.y - t.sy));
+      ctx.beginPath();
+      ctx.arc(horiz ? t.sx + off : t.sx, horiz ? t.sy : t.sy + off, 8, 0, 7);
+      ctx.fill();
+      if (state.controlMode === 'slide') break;    // slide uses first touch only
     }
+    ctx.restore();
+  }
+  if (state.screen === 'playing' && state.controlMode === 'swoop' && touches.size > 0 && !state.sim.exploded) {
+    // aim/burn boundary: inside the ring you aim, outside you also thrust
+    const [sx, sy] = worldToScreen(state.sim.x, state.sim.y);
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,179,0,0.35)';
+    ctx.setLineDash([5, 7]);
+    ctx.beginPath(); ctx.arc(sx, sy, SWOOP_BURN_R, 0, 7); ctx.stroke();
+    ctx.restore();
   }
   if (state.controlMode === 'classic') {
     // control zone hints
@@ -609,15 +645,17 @@ function drawMenu() {
   }
 
   by += 8;
-  const MODES = ['slide', 'swoop', 'classic'];
+  const MODES = ['dual', 'slide', 'swoop', 'classic'];
   const MODE_LABEL = {
+    dual: 'Controls: DUAL (left turns · right burns)',
     slide: 'Controls: SLIDE (thrust + slide to turn)',
     swoop: 'Controls: SWOOP (steer toward finger)',
     classic: 'Controls: CLASSIC (buttons)',
   };
   const MODE_HINT = {
+    dual: 'Left half: slide left/right of your press point to rotate. Right half: hold to thrust. Fully independent.',
     slide: 'Hold anywhere to thrust. Slide up/down from where you pressed to rotate. Release to coast.',
-    swoop: 'Hold anywhere: ship steers toward your finger and thrusts. Release to coast.',
+    swoop: 'Hold: ship aims at your finger. Close to the ship = aim only; farther out = aim + thrust.',
     classic: 'Bottom corners: rotate left / right · right side: thrust.',
   };
   button(bx, by, bw, 50, MODE_LABEL[state.controlMode], () => {
