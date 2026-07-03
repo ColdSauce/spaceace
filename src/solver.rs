@@ -20,6 +20,7 @@
 
 use std::collections::HashMap;
 use std::f32::consts::PI;
+use std::sync::OnceLock;
 
 use rayon::prelude::*;
 
@@ -154,8 +155,14 @@ pub struct AceSolver {
     // next_dir[p * n + q] = unit direction of the route's first step when
     // leaving pickup p toward pickup q (steepest descent of q's field at p).
     next_dir: Vec<(f32, f32)>,
+
+    /// Velocity-aware time-to-go lattice (see `TimeLattice`). Built lazily on
+    /// the first `lattice=true` beam call; None when n_pickups > 4 (field
+    /// count is 2^n - 1) or the build fails to reach the spawn.
+    lattice: OnceLock<Option<TimeLattice>>,
 }
 
+#[derive(Clone)]
 pub struct BeamParams {
     pub width: usize,
     pub max_ticks: u32,
@@ -183,6 +190,22 @@ pub struct BeamParams {
     /// Amplitude (in px) of seeded rank noise — decorrelates ties across
     /// seeds so restarts explore different regions of the search space.
     pub jitter: f32,
+    /// Forced pickup collection order (indices). Candidates whose collected
+    /// set is not a prefix of this order are dropped. Diagnostic/portfolio
+    /// tool: lets separate solves own different orderings.
+    pub order: Option<Vec<u8>>,
+    /// Positional-diversity selection: within each mask group, survivors are
+    /// drawn round-robin across 128px position cells (at most this many per
+    /// cell) before rank fills the rest. Guards strategically distinct lines
+    /// (wide corner entries, alternative gaps) from rank monoculture during
+    /// the 20-40 ticks before their payoff. 0 disables.
+    pub cell_strat_m: usize,
+    /// Rank by the velocity-aware time-to-go lattice instead of the px
+    /// route bound. The lattice values momentum, corner speed limits, flip
+    /// commitment distances and terminal dives physically, in seconds; the
+    /// doom/projection/turnaround machinery is skipped entirely. Falls back
+    /// to the px rank when the lattice is unavailable (n_pickups > 4).
+    pub lattice: bool,
 }
 
 impl Default for BeamParams {
@@ -200,6 +223,9 @@ impl Default for BeamParams {
             doom_scale: 1.0,
             turn_w: 1.0,
             jitter: 3.0,
+            order: None,
+            cell_strat_m: 48,
+            lattice: false,
         }
     }
 }
@@ -207,9 +233,31 @@ impl Default for BeamParams {
 struct Cand {
     key: u64,
     rank: f32,
+    /// Route lower bound (px) at the state, doom/jitter-free. Selection uses
+    /// this for mask-group retain/quota decisions so a doom spike on a
+    /// mid-dive group cannot spuriously extinguish it.
+    h: f32,
     state: SimState,
     parent: u32,
     action: u8,
+}
+
+/// True iff `mask` is exactly the set of the first k pickups of `order`,
+/// for some k (i.e. collection so far respects the forced order).
+#[inline]
+fn order_ok(mask: u32, order: &[u8]) -> bool {
+    let mut m = mask;
+    for &p in order {
+        if m == 0 {
+            return true;
+        }
+        let bit = 1u32 << p;
+        if m & bit == 0 {
+            return false;
+        }
+        m &= !bit;
+    }
+    m == 0
 }
 
 /// Target state for rendezvous prefix re-solves.
@@ -441,7 +489,45 @@ impl AceSolver {
             rem,
             pair,
             next_dir,
+            lattice: OnceLock::new(),
         }
+    }
+
+    /// Build the time lattice if it is buildable and not yet built.
+    /// Called once at beam entry when `lattice=true`; the build itself uses
+    /// rayon and takes O(10s), which is amortized over a whole solve run.
+    fn ensure_lattice(&self) -> Option<&TimeLattice> {
+        self.lattice
+            .get_or_init(|| {
+                if self.n_pickups == 0 || self.n_pickups > 4 {
+                    return None;
+                }
+                let t0 = std::time::Instant::now();
+                let lat = TimeLattice::build(
+                    &self.lines,
+                    &self.pickups,
+                    self.hmin,
+                    (self.hdims.0 as f32 * self.hcell, self.hdims.1 as f32 * self.hcell),
+                );
+                let spawn_eta = lat.eta(
+                    self.spawn.x, self.spawn.y, 0.0, -1.0, self.spawn.rot, 0, self.full_mask,
+                );
+                eprintln!(
+                    "[lattice] built in {:.1}s: {} cells x {} headings x {} bands x 2, {} fields; spawn ETA {:.2}s",
+                    t0.elapsed().as_secs_f32(),
+                    lat.rows * lat.cols,
+                    N_HEAD,
+                    BAND_REPS.len(),
+                    lat.fields.len().saturating_sub(1),
+                    spawn_eta,
+                );
+                if !spawn_eta.is_finite() {
+                    eprintln!("[lattice] spawn unreachable in lattice; disabling lattice rank");
+                    return None;
+                }
+                Some(lat)
+            })
+            .as_ref()
     }
 
     pub fn spawn(&self) -> SimState {
@@ -577,6 +663,15 @@ impl AceSolver {
         self.h_px(x, y, mask) as i64
     }
 
+    /// Lattice time-to-go probe (seconds); NaN if the lattice is unavailable,
+    /// +inf off-lattice. Builds the lattice on first use.
+    pub fn lattice_eta_at(&self, x: f32, y: f32, vx: f32, vy: f32, rot: f32, mask: u32) -> f64 {
+        match self.ensure_lattice() {
+            Some(lat) => lat.eta(x, y, vx, vy, rot, mask, self.full_mask) as f64,
+            None => f64::NAN,
+        }
+    }
+
     pub fn trace(&self, tape: &[u8], stride: usize) -> Vec<(u32, f32, f32, i64)> {
         let mut s = self.spawn;
         let mut out = vec![(0, s.x, s.y, self.h_px(s.x, s.y, s.mask) as i64)];
@@ -650,6 +745,9 @@ impl AceSolver {
         if start.mask == self.full_mask {
             return Some(Vec::new());
         }
+        if p.lattice {
+            self.ensure_lattice();
+        }
         let mut cur: Vec<SimState> = vec![start];
         let mut links: Vec<(Vec<u32>, Vec<u8>)> = Vec::new();
         let debug = std::env::var("ACE_DEBUG").is_ok();
@@ -678,12 +776,18 @@ impl AceSolver {
                                         continue;
                                     }
                                 }
+                                if let Some(ord) = &p.order {
+                                    if !order_ok(s.mask, ord) {
+                                        continue;
+                                    }
+                                }
                             }
                             let key = self.quant_key(&s, p);
-                            let rank = self.rank(&s, p, key);
+                            let (rank, h) = self.rank(&s, p, key);
                             out.push(Cand {
                                 key,
                                 rank,
+                                h,
                                 state: s,
                                 parent: (base + si) as u32,
                                 action: a,
@@ -726,9 +830,11 @@ impl AceSolver {
             }
 
             // Select the beam, stratified by pickup mask: each distinct
-            // collected-set gets an equal share of the width so one
-            // fast-moving cluster can't extinguish alternative routes or
-            // more cautious pacing (which is how beams die en masse).
+            // collected-set gets a share of the width so one fast-moving
+            // cluster can't extinguish alternative routes or pacings (which
+            // is how beams die en masse). Retain/quota decisions use h (the
+            // doom/jitter-free route bound), so a doom spike on a mid-dive
+            // group can't spuriously extinguish it.
             if keep.len() > p.width {
                 // BTreeMap: deterministic group order (HashMap iteration
                 // order varies per process, breaking run reproducibility).
@@ -737,34 +843,139 @@ impl AceSolver {
                     by_mask.entry(cands[i].state.mask).or_default().push(i);
                 }
                 // Drop route-orderings that have fallen hopelessly behind:
-                // at equal tick, rank ≈ remaining route px, so a group whose
+                // at equal tick, h ≈ remaining route px, so a group whose
                 // best is far worse than the global best is a strictly worse
-                // ordering and would otherwise hold its quota forever.
-                if by_mask.len() > 2 {
-                    let global_best = keep
-                        .iter()
-                        .map(|&i| cands[i].rank)
-                        .fold(f32::INFINITY, f32::min);
-                    by_mask.retain(|_, group| {
-                        group
-                            .iter()
-                            .map(|&i| cands[i].rank)
-                            .fold(f32::INFINITY, f32::min)
-                            <= global_best + 900.0
-                    });
+                // ordering and would otherwise hold its quota forever. This
+                // must apply from 2 groups up — the old >2 guard let a dead
+                // laggard ordering hold half the beam for the entire tail of
+                // the search.
+                let group_best_h: Vec<(u32, f32)> = by_mask
+                    .iter()
+                    .map(|(&m, group)| {
+                        (m, group.iter().map(|&i| cands[i].h).fold(f32::INFINITY, f32::min))
+                    })
+                    .collect();
+                let global_best_h = group_best_h
+                    .iter()
+                    .map(|&(_, h)| h)
+                    .fold(f32::INFINITY, f32::min);
+                if by_mask.len() >= 2 {
+                    for &(m, h) in &group_best_h {
+                        if h > global_best_h + 700.0 {
+                            by_mask.remove(&m);
+                        }
+                    }
                 }
-                let quota = (p.width / by_mask.len().max(1)).max(256);
-                let mut selected: Vec<usize> = Vec::with_capacity(p.width + quota);
+                // Merit-weighted quotas: groups near the best route bound get
+                // more slots; hopeful-but-behind groups keep a living share.
+                let weights: Vec<(u32, f32)> = group_best_h
+                    .iter()
+                    .filter(|(m, _)| by_mask.contains_key(m))
+                    .map(|&(m, h)| (m, (-(h - global_best_h) / 350.0).exp()))
+                    .collect();
+                let wsum: f32 = weights.iter().map(|&(_, w)| w).sum();
+                let mut selected: Vec<usize> = Vec::with_capacity(p.width + 256);
                 let mut leftover: Vec<usize> = Vec::new();
-                for (_, mut group) in by_mask {
-                    if group.len() > quota {
+                for (m, w) in weights {
+                    let mut group = by_mask.remove(&m).unwrap();
+                    let quota = ((p.width as f32 * w / wsum.max(1e-6)) as usize).max(256);
+                    if group.len() <= quota {
+                        selected.extend_from_slice(&group);
+                        continue;
+                    }
+                    if p.cell_strat_m == 0 {
                         group.select_nth_unstable_by(quota, |&a, &b| {
                             cands[a].rank.partial_cmp(&cands[b].rank).unwrap()
                         });
                         leftover.extend_from_slice(&group[quota..]);
                         group.truncate(quota);
+                        selected.extend_from_slice(&group);
+                        continue;
                     }
-                    selected.extend_from_slice(&group);
+                    // Positional+pace diversity inside the group: bucket by
+                    // (128px cell, coarse speed band), sort each bucket by
+                    // rank, then take survivors round-robin across buckets
+                    // (best-of-each-bucket first). Guarantees geometrically
+                    // distinct lines (wide corner entry, alternative gap)
+                    // AND pacing alternatives (slow careful entry vs fast
+                    // needle) survive the 20-40 ticks until their payoff —
+                    // whole-beam extinctions come from pace monocultures
+                    // committing together.
+                    let mut by_cell: std::collections::BTreeMap<u64, Vec<usize>> = std::collections::BTreeMap::new();
+                    for i in group {
+                        let c = &cands[i];
+                        let cx = (c.state.x / 128.0).floor() as i64 as u64;
+                        let cy = (c.state.y / 128.0).floor() as i64 as u64;
+                        let sp = c.state.vx * c.state.vx + c.state.vy * c.state.vy;
+                        let sb = if sp < 250.0 * 250.0 { 0u64 } else if sp < 550.0 * 550.0 { 1 } else { 2 };
+                        by_cell.entry((cx << 34) ^ ((cy & 0xFFFF_FFFF) << 2) ^ sb).or_default().push(i);
+                    }
+                    let buckets: Vec<Vec<usize>> = by_cell
+                        .into_values()
+                        .map(|mut v| {
+                            v.sort_unstable_by(|&a, &b| {
+                                cands[a].rank.partial_cmp(&cands[b].rank).unwrap()
+                            });
+                            v
+                        })
+                        .collect();
+                    // Protected phase: round-robin across buckets, at most
+                    // cell_strat_m per bucket. Protection is only for
+                    // plausibly-competitive states (near the group's best
+                    // rank): without the gate, buckets full of
+                    // dead-committed or off-lattice states soak up slots at
+                    // the same priority as viable lines, and the beam pads
+                    // itself with the walking dead. Everything else falls
+                    // through to the rank-ordered fill so the beam is never
+                    // capped by the number of occupied buckets.
+                    let group_best_rank = buckets
+                        .iter()
+                        .filter_map(|b| b.first())
+                        .map(|&i| cands[i].rank)
+                        .fold(f32::INFINITY, f32::min);
+                    let protect_cut = group_best_rank + 900.0;
+                    let mut cursors = vec![0usize; buckets.len()];
+                    let mut taken = 0usize;
+                    'rr: loop {
+                        let mut any = false;
+                        for (bi, b) in buckets.iter().enumerate() {
+                            if cursors[bi] < b.len().min(p.cell_strat_m)
+                                && cands[b[cursors[bi]]].rank <= protect_cut
+                            {
+                                selected.push(b[cursors[bi]]);
+                                cursors[bi] += 1;
+                                taken += 1;
+                                any = true;
+                                if taken >= quota {
+                                    break 'rr;
+                                }
+                            }
+                        }
+                        if !any {
+                            break;
+                        }
+                    }
+                    // Everything unconsumed (both past-cap tails and cells
+                    // the quota never reached) competes by rank for the
+                    // rest of this group's quota, then for the global fill.
+                    let mut rest: Vec<usize> = Vec::new();
+                    for (bi, b) in buckets.iter().enumerate() {
+                        if cursors[bi] < b.len() {
+                            rest.extend_from_slice(&b[cursors[bi]..]);
+                        }
+                    }
+                    if taken < quota && !rest.is_empty() {
+                        let fill = (quota - taken).min(rest.len());
+                        if rest.len() > fill {
+                            rest.select_nth_unstable_by(fill, |&a, &b| {
+                                cands[a].rank.partial_cmp(&cands[b].rank).unwrap()
+                            });
+                        }
+                        selected.extend_from_slice(&rest[..fill]);
+                        leftover.extend_from_slice(&rest[fill..]);
+                    } else {
+                        leftover.extend_from_slice(&rest);
+                    }
                 }
                 // Fill remaining width with the best leftovers regardless of mask.
                 if selected.len() < p.width && !leftover.is_empty() {
@@ -900,15 +1111,18 @@ impl AceSolver {
         best
     }
 
-    /// Beam rank: h at the current position blended with h at the braking
-    /// point (rewards useful momentum), plus a hard doom penalty when the
-    /// ship physically cannot avoid the wall ahead: stopping distance
-    /// includes the time to rotate to retrograde (4.36 rad/s) and the
-    /// v^2/2a braking run, compared against a raycast along the velocity.
-    /// Doomed states must never displace viable ones — a final full-speed
-    /// dash into the last pickup still works because completion is detected
-    /// during expansion, before ranking matters. Small seeded jitter
-    /// decorrelates equal-ranked states across seeds.
+    /// Escape-feasibility penalty. A state is doomed only if it can neither
+    /// STOP (rotate to retrograde, then v²/2a braking run) nor ARC AWAY
+    /// (rotate the thrust vector merely perpendicular to velocity, then bend
+    /// the path with a ≈ v²/a_lat of forward room) before the nearest wall
+    /// along its motion cone. The old stop-only model forbade ~350-400 px/s
+    /// arcing corner lines at 234 px/s and flagged 22% of a proven human
+    /// run as dead — it was the single biggest lock-out of expert lines.
+    ///
+    /// The penalty is graded (px of deficit, scaled), not a cliff, so
+    /// near-doomed-but-viable cornering states stay comparable; truly dead
+    /// states crash out physically within d/v seconds anyway, and
+    /// positional-diversity selection keeps viable alternatives alive.
     #[inline]
     fn doom_penalty(&self, s: &SimState) -> f32 {
         let speed = (s.vx * s.vx + s.vy * s.vy).sqrt();
@@ -923,54 +1137,103 @@ impl AceSolver {
         if dth > PI {
             dth = 2.0 * PI - dth;
         }
-        let t_rot = dth / ROTATION_SPEED;
+        let t_rot_retro = dth / ROTATION_SPEED;
         // Direction-aware braking: gravity helps kill upward velocity
         // (uy < 0 → decel ≈ 500) and fights the brake on descents
         // (uy > 0 → decel ≈ 300). A fixed conservative value over-brakes
         // climbs, which is where expert lines carry the most speed.
         let a_eff = (400.0 - 100.0 * uy).clamp(280.0, 490.0);
         // Ship nose sticks out ~40px.
-        let d_need = speed * t_rot + speed * speed / (2.0 * a_eff) + 40.0;
-        let d_ahead = self.ray_wall_dist(s.x, s.y, ux, uy, d_need);
+        let d_stop = speed * t_rot_retro + speed * speed / (2.0 * a_eff) + 40.0;
+        // Arc escape: thrust only needs to reach ±90° of velocity (the
+        // nearer side), then a quarter-turn deflection consumes ≈ v²/a_lat
+        // of forward room.
+        let t_rot_perp = (dth - PI * 0.5).abs() / ROTATION_SPEED;
+        let d_arc = speed * t_rot_perp + speed * speed / 400.0 + 40.0;
+        let d_need = d_stop.min(d_arc);
+        let d_center = self.ray_wall_dist(s.x, s.y, ux, uy, d_need);
+        if d_center >= d_need {
+            return 0.0;
+        }
+        // The center ray is blocked: an in-progress bank may still see the
+        // corner exit slightly off the velocity heading. Take the best of
+        // ±20° before declaring a deficit.
+        let (c20, s20) = (0.93969f32, 0.34202f32);
+        let d_left = self.ray_wall_dist(s.x, s.y, ux * c20 + uy * s20, uy * c20 - ux * s20, d_need);
+        let d_right = self.ray_wall_dist(s.x, s.y, ux * c20 - uy * s20, uy * c20 + ux * s20, d_need);
+        let d_ahead = d_center.max(d_left).max(d_right);
         if d_ahead >= d_need {
             return 0.0;
         }
-        3000.0 + (d_need - d_ahead)
+        (6.0 * (d_need - d_ahead)).min(2500.0)
     }
 
+    /// Returns (rank, h_now). h_now is the doom/jitter-free route lower
+    /// bound, used by selection for mask-group retain/quota decisions.
     #[inline]
-    fn rank(&self, s: &SimState, p: &BeamParams, key: u64) -> f32 {
-        let h_now = self.h_px(s.x, s.y, s.mask) as f32;
-        let speed = (s.vx * s.vx + s.vy * s.vy).sqrt();
-        let mut t_stop = (speed / p.proj_div).min(p.lookahead);
-        // Line-of-sight clamp: never project the velocity reward through a
-        // wall. With thin partitions, the far side can be much closer to the
-        // goal, and an unclamped projection would reward flying into walls.
-        if speed > 60.0 {
-            let proj_dist = speed * t_stop;
-            let d_ahead = self.ray_wall_dist(s.x, s.y, s.vx / speed, s.vy / speed, proj_dist);
-            if d_ahead < proj_dist {
-                t_stop = (d_ahead - 20.0).max(0.0) / speed;
+    fn rank(&self, s: &SimState, p: &BeamParams, key: u64) -> (f32, f32) {
+        if p.lattice {
+            if let Some(Some(lat)) = self.lattice.get() {
+                return self.rank_lattice(s, p, key, lat);
             }
         }
-        let ex = s.x + s.vx * t_stop;
-        let ey = s.y + s.vy * t_stop;
+        let h_now = self.h_px(s.x, s.y, s.mask) as f32;
+        let speed = (s.vx * s.vx + s.vy * s.vy).sqrt();
+        let t_stop = (speed / p.proj_div).min(p.lookahead);
 
-        // Fly-through credit: if the projected segment passes through a
-        // remaining pickup's collection radius, evaluate the projection with
-        // that pickup collected. Without this, h measures distance TO the
-        // pickup, so a fast fly-through looks like overshoot and the rank
-        // rewards braking to a stop at every pickup — the single biggest
-        // gap between "AI that completes the level" and expert racing lines.
+        // Velocity projection along the true ballistic parabola (gravity
+        // sags the path 50px over a 1s horizon — more than the pickup
+        // capture radius, so a straight projection rewards aim that will
+        // miss and denies credit to correctly lofted aim). Walk 3 samples;
+        // stop at the first segment that hits a wall (never project the
+        // reward through a wall: with thin partitions the far side can be
+        // much closer to the goal).
+        let mut ex = s.x;
+        let mut ey = s.y;
         let mut proj_mask = s.mask;
-        let mut rem = self.full_mask & !s.mask;
-        while rem != 0 {
-            let pi = rem.trailing_zeros() as usize;
-            rem &= rem - 1;
-            let (px, py) = self.pickups[pi];
-            // 40px: collection radius (46.5) minus a small aiming margin.
-            if point_seg_dist_sq(px, py, s.x, s.y, ex, ey) <= 40.0 * 40.0 {
-                proj_mask |= 1 << pi;
+        if speed > 60.0 && t_stop > 0.0 {
+            for i in 1..=3 {
+                let t = t_stop * (i as f32) / 3.0;
+                let mut nx = s.x + s.vx * t;
+                let mut ny = s.y + s.vy * t + 50.0 * t * t;
+                let ddx = nx - ex;
+                let ddy = ny - ey;
+                let seg_len = (ddx * ddx + ddy * ddy).sqrt();
+                let mut clamped = false;
+                if seg_len > 1.0 {
+                    let hit = self.ray_wall_dist(ex, ey, ddx / seg_len, ddy / seg_len, seg_len);
+                    if hit < seg_len {
+                        // Clamp to just short of the wall; this is the last
+                        // segment we walk (but it still earns fly-through
+                        // credit below — pickups often sit near walls, e.g.
+                        // a terminal dive onto a pickup above a floor).
+                        let f = ((hit - 20.0).max(0.0)) / seg_len;
+                        nx = ex + ddx * f;
+                        ny = ey + ddy * f;
+                        clamped = true;
+                    }
+                }
+                // Fly-through credit: if this segment passes through a
+                // remaining pickup's collection radius, evaluate the
+                // projection with that pickup collected. Without this, h
+                // measures distance TO the pickup, so a fast fly-through
+                // looks like overshoot and the rank rewards braking to a
+                // stop at every pickup.
+                let mut rem = self.full_mask & !proj_mask;
+                while rem != 0 {
+                    let pi = rem.trailing_zeros() as usize;
+                    rem &= rem - 1;
+                    let (px, py) = self.pickups[pi];
+                    // 45px: collection radius (46.5) minus a small margin.
+                    if point_seg_dist_sq(px, py, ex, ey, nx, ny) <= 45.0 * 45.0 {
+                        proj_mask |= 1 << pi;
+                    }
+                }
+                ex = nx;
+                ey = ny;
+                if clamped {
+                    break;
+                }
             }
         }
 
@@ -985,36 +1248,45 @@ impl AceSolver {
         let h_stop = if h_stop >= UNREACHABLE as f32 { h_now } else { h_stop };
 
         // Turnaround charge: arriving at a pickup with velocity that doesn't
-        // point down the next leg costs v_wasted^2 / 2a to redirect. Without
-        // this, the beam picks whoever reaches the pickup first — usually a
-        // fast overshooting approach that then scrambles back.
+        // point down the next leg costs redirect time the beam won't see for
+        // dozens of layers. Charge it in rank-equivalent px, calibrated to
+        // tick-true cost: rotation phase (≈0.72s of stalled progress at the
+        // ~350 px/s route average → 253px, scaled by how misaligned we are)
+        // plus killing the wasted component (waste/a seconds → 0.875·waste).
+        // The old waste²/700 undercharged 2x at 500 px/s and 7x at 200 px/s.
         let mut turn_pen = 0.0f32;
         let collected_now = proj_mask & !s.mask;
         if collected_now != 0 && proj_mask != self.full_mask && p.turn_w > 0.0 {
             let n = self.n_pickups;
-            let pi = collected_now.trailing_zeros() as usize;
             let remaining = (self.full_mask & !proj_mask) as usize;
-            let mut best_cost = i32::MAX;
-            let mut best_q = usize::MAX;
-            let mut bits = remaining;
+            let mut bits = collected_now;
             while bits != 0 {
-                let q = bits.trailing_zeros() as usize;
+                let pi = bits.trailing_zeros() as usize;
                 bits &= bits - 1;
-                let cost = self.pair[pi * n + q].saturating_add(self.rem[remaining * n + q]);
-                if cost < best_cost {
-                    best_cost = cost;
-                    best_q = q;
+                let mut best_cost = i32::MAX;
+                let mut best_q = usize::MAX;
+                let mut qbits = remaining;
+                while qbits != 0 {
+                    let q = qbits.trailing_zeros() as usize;
+                    qbits &= qbits - 1;
+                    let cost = self.pair[pi * n + q].saturating_add(self.rem[remaining * n + q]);
+                    if cost < best_cost {
+                        best_cost = cost;
+                        best_q = q;
+                    }
                 }
-            }
-            if best_q != usize::MAX {
-                let (dx, dy) = self.next_dir[pi * n + best_q];
-                let vd = s.vx * dx + s.vy * dy;
-                let waste_sq = if vd <= 0.0 {
-                    speed * speed
-                } else {
-                    (speed * speed - vd * vd).max(0.0)
-                };
-                turn_pen = p.turn_w * waste_sq / 700.0;
+                if best_q != usize::MAX {
+                    let (dx, dy) = self.next_dir[pi * n + best_q];
+                    let vd = s.vx * dx + s.vy * dy;
+                    let waste = if vd <= 0.0 {
+                        speed
+                    } else {
+                        (speed * speed - vd * vd).max(0.0).sqrt()
+                    };
+                    let misalign = if speed > 1.0 { (waste / speed).min(1.0) } else { 0.0 };
+                    let pen = p.turn_w * (253.0 * misalign + 0.875 * waste);
+                    turn_pen = turn_pen.max(pen);
+                }
             }
         }
 
@@ -1023,7 +1295,34 @@ impl AceSolver {
         } else {
             0.0
         };
-        (1.0 - p.mix) * h_now + p.mix * h_stop + doom + turn_pen + jitter
+        ((1.0 - p.mix) * h_now + p.mix * h_stop + doom + turn_pen + jitter, h_now)
+    }
+
+    /// Lattice rank: minimal remaining time in seconds, converted to
+    /// px-equivalent (x380, the observed expert route speed) so mask-group
+    /// retain/quota thresholds keep their meaning. No doom, projection or
+    /// turnaround terms — the lattice prices momentum, corners, flips and
+    /// terminal dives physically. Off-lattice states (dead cells) fall back
+    /// to the px bound plus a large offset: they stay comparable among
+    /// themselves but never displace lattice-alive states.
+    #[inline]
+    fn rank_lattice(&self, s: &SimState, p: &BeamParams, key: u64, lat: &TimeLattice) -> (f32, f32) {
+        let jitter = if p.jitter > 0.0 {
+            (mix64(key ^ p.seed) & 0xFFFF) as f32 / 65535.0 * p.jitter
+        } else {
+            0.0
+        };
+        if s.mask == self.full_mask {
+            return (jitter, 0.0);
+        }
+        let v = lat.eta(s.x, s.y, s.vx, s.vy, s.rot, s.mask, self.full_mask);
+        if v.is_finite() {
+            let px = v * 380.0;
+            (px + jitter, px)
+        } else {
+            let h = self.h_px(s.x, s.y, s.mask) as f32;
+            (30_000.0 + h + jitter, 30_000.0 + h)
+        }
     }
 
     /// Full solve from spawn.
@@ -1047,7 +1346,10 @@ impl AceSolver {
         let cols = ((self.hdims.1 as f32 * self.hcell) / cell) as usize + 2;
         let rows = ((self.hdims.0 as f32 * self.hcell) / cell) as usize + 2;
         let mut occ = vec![false; rows * cols];
-        let rad_cells = (radius / cell).ceil() as i32;
+        // Clamp to the grid diameter: radius=1e9 means "whole map", not a
+        // 4e7-cell dilation loop per tape position (which never finishes —
+        // "global" refines silently hung the driver until this clamp).
+        let rad_cells = ((radius / cell).ceil() as i64).min(rows.max(cols) as i64) as i32;
         let mut s = self.spawn;
         let mut mark = |x: f32, y: f32| {
             let c0 = ((x - self.hmin.0) / cell) as i32;
@@ -1087,7 +1389,7 @@ impl AceSolver {
             ref_states.push(st);
         }
 
-        let params = BeamParams { max_ticks: ticks - 1, ..*p };
+        let params = BeamParams { max_ticks: ticks - 1, ..p.clone() };
         let out = self.beam_impl(
             self.spawn,
             &params,
@@ -1135,7 +1437,7 @@ impl AceSolver {
             ref_states.push(st);
         }
 
-        let params = BeamParams { max_ticks: rendezvous_tick as u32 - 1, ..*p };
+        let params = BeamParams { max_ticks: rendezvous_tick as u32 - 1, ..p.clone() };
         let matcher = RendezvousTarget { state: target, tol_pos, tol_vel, tol_rot };
         let candidates = self.beam_prefix_matches(
             self.spawn, &params, &matcher,
@@ -1178,6 +1480,9 @@ impl AceSolver {
         matcher: &RendezvousTarget,
         warm: (&[SimState], &[u8]),
     ) -> Vec<(u32, Vec<u8>)> {
+        if p.lattice {
+            self.ensure_lattice();
+        }
         let mut cur: Vec<SimState> = vec![start];
         let mut links: Vec<(Vec<u32>, Vec<u8>)> = Vec::new();
         let mut ref_idx: Option<u32> = Some(0);
@@ -1199,7 +1504,7 @@ impl AceSolver {
                             }
                             let key = self.quant_key(&s, p);
                             let rank = self.rank_to_target(&s, p, key, matcher);
-                            out.push(Cand { key, rank, state: s, parent: (base + si) as u32, action: a });
+                            out.push(Cand { key, rank, h: 0.0, state: s, parent: (base + si) as u32, action: a });
                         }
                     }
                     out
@@ -1284,7 +1589,7 @@ impl AceSolver {
         if s.mask != m.state.mask {
             // Wrong pickup set: rank by normal route heuristic (must collect
             // the missing pickups first).
-            return self.rank(s, p, key) + 5000.0;
+            return self.rank(s, p, key).0 + 5000.0;
         }
         let dx = s.x - m.state.x;
         let dy = s.y - m.state.y;
@@ -1310,8 +1615,7 @@ impl AceSolver {
         if budget == 0 {
             return None;
         }
-        let mut params = BeamParams { max_ticks: budget as u32, ..*p };
-        params.seed = p.seed;
+        let params = BeamParams { max_ticks: budget as u32, ..p.clone() };
         let suffix = self.beam_from(start, &params)?;
         let mut out = prefix.to_vec();
         out.extend_from_slice(&suffix);
@@ -1368,7 +1672,11 @@ impl AceSolver {
             cand.clear();
             cand.extend_from_slice(&cur);
 
-            match rng.below(4) {
+            // Edits at/after `edit_from` are replayed from the nearest
+            // checkpoint; moves that touch two positions set it to the
+            // earlier one.
+            let mut edit_from = pos;
+            match rng.below(8) {
                 0 => {
                     // delete 1..=3 ticks
                     let k = 1 + rng.below(3) as usize;
@@ -1393,7 +1701,7 @@ impl AceSolver {
                         }
                     }
                 }
-                _ => {
+                3 => {
                     // insert 1..=2 ticks of a random action (enables rerouting;
                     // only survives if later deletions win the ticks back)
                     if cand.len() as u32 <= cur_ticks + 4 {
@@ -1404,10 +1712,76 @@ impl AceSolver {
                         }
                     }
                 }
+                4 => {
+                    // rotation-pair delete: remove one left-rotating and one
+                    // right-rotating tick. Net rotation downstream of the
+                    // second edit is preserved, so unlike a lone delete the
+                    // tail usually stays aligned — the classic TAS move for
+                    // winning ticks out of over-rotated corners.
+                    let is_l = |a: u8| a == 2 || a == 3;
+                    let is_r = |a: u8| a == 4 || a == 5;
+                    let first = cand[pos..].iter().position(|&a| is_l(a) || is_r(a)).map(|o| pos + o);
+                    if let Some(i) = first {
+                        let want_r = is_l(cand[i]);
+                        let j = cand[i + 1..]
+                            .iter()
+                            .position(|&a| if want_r { is_r(a) } else { is_l(a) })
+                            .map(|o| i + 1 + o);
+                        if let Some(j) = j {
+                            cand.remove(j);
+                            cand.remove(i);
+                            edit_from = i;
+                        }
+                    }
+                }
+                5 => {
+                    // rotation-pair strip: keep both ticks but strip the
+                    // rotation component from an opposing pair (2/3 -> 0/1,
+                    // 4/5 -> 0/1). Length-neutral drift that untwists
+                    // wobbly segments; survives via accept_equal.
+                    let is_l = |a: u8| a == 2 || a == 3;
+                    let is_r = |a: u8| a == 4 || a == 5;
+                    let first = cand[pos..].iter().position(|&a| is_l(a) || is_r(a)).map(|o| pos + o);
+                    if let Some(i) = first {
+                        let want_r = is_l(cand[i]);
+                        let j = cand[i + 1..]
+                            .iter()
+                            .position(|&a| if want_r { is_r(a) } else { is_l(a) })
+                            .map(|o| i + 1 + o);
+                        if let Some(j) = j {
+                            cand[i] &= 1; // 2/3->0/1, keeps thrust bit
+                            cand[j] &= 1;
+                            edit_from = i;
+                        }
+                    }
+                }
+                6 => {
+                    // near transposition: swap two ticks up to 8 apart.
+                    // Preserves the action multiset (same net rotation and
+                    // thrust count) while retiming within the window.
+                    let d = 1 + rng.below(8) as usize;
+                    if pos + d < cand.len() {
+                        cand.swap(pos, pos + d);
+                    }
+                }
+                _ => {
+                    // thrust retiming: move one thrust tick onto a nearby
+                    // coasting tick (thrust count preserved). Length-neutral
+                    // drift for shifting burn timing across boundaries.
+                    let w = 24.min(cand.len() - pos);
+                    let win = &cand[pos..pos + w];
+                    let ti = win.iter().position(|&a| a & 1 == 1);
+                    let ci = win.iter().position(|&a| a & 1 == 0);
+                    if let (Some(ti), Some(ci)) = (ti, ci) {
+                        cand[pos + ti] &= !1;
+                        cand[pos + ci] |= 1;
+                        edit_from = pos + ti.min(ci);
+                    }
+                }
             }
 
             // Replay from the closest checkpoint at or before the edit.
-            let ck = (pos / CKPT_EVERY).min(ckpts.len().saturating_sub(1));
+            let ck = (edit_from / CKPT_EVERY).min(ckpts.len().saturating_sub(1));
             let mut s = ckpts[ck];
             let start_tick = ck * CKPT_EVERY;
             let mut outcome_ticks: Option<u32> = None;
@@ -1453,6 +1827,438 @@ fn build_checkpoints(solver: &AceSolver, tape: &[u8], every: usize) -> Vec<SimSt
         }
     }
     out
+}
+
+// --- time lattice --------------------------------------------------------------
+
+/// Lattice discretization. 20px cells x 16 velocity headings x speed bands x
+/// thrust posture (prograde/retrograde). ~5.5M nodes on L7.
+const LAT_CELL: f32 = 20.0;
+const N_HEAD: usize = 16;
+/// Representative speeds per band (px/s). Band boundaries are midpoints.
+const BAND_REPS: [f32; 11] = [
+    30.0, 80.0, 150.0, 240.0, 350.0, 480.0, 640.0, 840.0, 1080.0, 1360.0, 1700.0,
+];
+const N_BAND: usize = BAND_REPS.len();
+/// Time for a full prograde<->retrograde flip at 4.363 rad/s.
+const FLIP_T: f32 = PI / ROTATION_SPEED;
+/// Wall inflation for lattice clearance (px): ship half-wingspan plus margin.
+const LAT_INFLATION: f32 = 26.0;
+
+/// A motion-primitive edge template. Displacement and cost depend only on
+/// (heading, band, posture), never on the cell, so edges are precomputed
+/// once and validity ("is the swept path clear?") is a per-cell bitmap.
+struct LatTemplate {
+    src_h: u8,
+    src_b: u8,
+    src_post: u8,
+    dst_h: u8,
+    dst_b: u8,
+    dst_post: u8,
+    drow: i32,
+    dcol: i32,
+    cost: f32,
+    /// px offsets from the source cell center sampled against the inflated
+    /// blocked grid (the swept path of the maneuver).
+    samples: Vec<(f32, f32)>,
+}
+
+/// Velocity-aware time-to-go value function: `fields[remaining_mask][node]`
+/// is a physically-derived estimate (seconds) of the minimal time to collect
+/// every pickup in `remaining_mask` starting from that (position, velocity
+/// direction, speed, posture). Built by backward Dijkstra over motion
+/// primitives:
+///   - cruise: hold speed along heading
+///   - accel/brake: thrust prograde/retrograde (gravity-adjusted, so climbs
+///     accelerate at 300 px/s^2 and brake at 500, dives the reverse)
+///   - turn +-22.5 deg: constant-speed arc at a_lat = 400 (radius v^2/400,
+///     swept-arc wall clearance — corner speed limits emerge physically)
+///   - flip: 0.72s posture toggle that drifts v*0.72s along the velocity
+///     (the burn->flip->brake commitment distance the beam cannot otherwise
+///     see)
+/// Chaining over pickup subsets happens *through the node's velocity state*:
+/// touching pickup p at node n seeds V_S(n) = V_{S\p}(n), so arrival speed
+/// and direction carry into the next leg — including a free terminal dash
+/// (V_{last pickup} = 0 at any speed, even wall-bound).
+struct TimeLattice {
+    min: (f32, f32),
+    rows: usize,
+    cols: usize,
+    /// blocked grid at 10px, inflated LAT_INFLATION px, for edge sampling.
+    b_rows: usize,
+    b_cols: usize,
+    blocked: Vec<bool>,
+    templates: Vec<LatTemplate>,
+    /// template indices grouped by destination (h, b, post) for the backward
+    /// relaxation.
+    by_dst: Vec<Vec<u16>>,
+    /// valid[cell * n_templates + t]: swept path of template t from cell is
+    /// clear of (inflated) walls.
+    valid: Vec<u64>,
+    n_templates: usize,
+    /// fields[remaining_mask] (index 0 unused), each rows*cols*N_HEAD*N_BAND*2.
+    fields: Vec<Vec<f32>>,
+}
+
+#[inline]
+fn band_of(speed: f32) -> usize {
+    for i in 0..N_BAND - 1 {
+        if speed < (BAND_REPS[i] + BAND_REPS[i + 1]) * 0.5 {
+            return i;
+        }
+    }
+    N_BAND - 1
+}
+
+impl TimeLattice {
+    #[inline]
+    fn n_nodes(&self) -> usize {
+        self.rows * self.cols * N_HEAD * N_BAND * 2
+    }
+
+    #[inline]
+    fn node_idx(&self, r: usize, c: usize, h: usize, b: usize, post: usize) -> usize {
+        (((r * self.cols + c) * N_HEAD + h) * N_BAND + b) * 2 + post
+    }
+
+    #[inline]
+    fn blocked_at(&self, x: f32, y: f32) -> bool {
+        let c = ((x - self.min.0) / 10.0) as i64;
+        let r = ((y - self.min.1) / 10.0) as i64;
+        if r < 0 || c < 0 || r >= self.b_rows as i64 || c >= self.b_cols as i64 {
+            return true;
+        }
+        self.blocked[r as usize * self.b_cols + c as usize]
+    }
+
+    fn build(
+        lines: &[[f32; 4]],
+        pickups: &[(f32, f32)],
+        hmin: (f32, f32),
+        extent: (f32, f32), // (height px, width px) = hdims * hcell
+    ) -> TimeLattice {
+        let rows = (extent.0 / LAT_CELL) as usize + 1;
+        let cols = (extent.1 / LAT_CELL) as usize + 1;
+        let b_rows = (extent.0 / 10.0) as usize + 1;
+        let b_cols = (extent.1 / 10.0) as usize + 1;
+        let blocked = build_blocked(b_rows, b_cols, hmin, 10.0, lines, LAT_INFLATION);
+
+        // --- edge templates ---------------------------------------------------
+        let mut templates: Vec<LatTemplate> = Vec::new();
+        let sample_path = |x0: f32, y0: f32, x1: f32, y1: f32, out: &mut Vec<(f32, f32)>| {
+            let dx = x1 - x0;
+            let dy = y1 - y0;
+            let len = (dx * dx + dy * dy).sqrt();
+            let n = (len / 12.0).ceil().max(1.0) as usize;
+            for k in 0..=n {
+                let f = k as f32 / n as f32;
+                out.push((x0 + dx * f, y0 + dy * f));
+            }
+        };
+        for h in 0..N_HEAD {
+            let th = h as f32 * 2.0 * PI / N_HEAD as f32;
+            let (ux, uy) = (th.cos(), th.sin());
+            for b in 0..N_BAND {
+                let v = BAND_REPS[b];
+                for post in 0..2usize {
+                    // cruise: fixed 40px advance at band speed.
+                    {
+                        let l = 40.0f32;
+                        let (dx, dy) = (ux * l, uy * l);
+                        let mut samples = Vec::new();
+                        sample_path(0.0, 0.0, dx, dy, &mut samples);
+                        templates.push(LatTemplate {
+                            src_h: h as u8, src_b: b as u8, src_post: post as u8,
+                            dst_h: h as u8, dst_b: b as u8, dst_post: post as u8,
+                            drow: (dy / LAT_CELL).round() as i32,
+                            dcol: (dx / LAT_CELL).round() as i32,
+                            cost: l / v,
+                            samples,
+                        });
+                    }
+                    // accel to next band (prograde thrust; gravity-adjusted).
+                    if post == 0 && b + 1 < N_BAND {
+                        let a = (400.0 + 100.0 * uy).max(120.0);
+                        let v1 = BAND_REPS[b + 1];
+                        let l = (v1 * v1 - v * v) / (2.0 * a);
+                        let (dx, dy) = (ux * l, uy * l);
+                        let mut samples = Vec::new();
+                        sample_path(0.0, 0.0, dx, dy, &mut samples);
+                        templates.push(LatTemplate {
+                            src_h: h as u8, src_b: b as u8, src_post: 0,
+                            dst_h: h as u8, dst_b: (b + 1) as u8, dst_post: 0,
+                            drow: (dy / LAT_CELL).round() as i32,
+                            dcol: (dx / LAT_CELL).round() as i32,
+                            cost: (v1 - v) / a,
+                            samples,
+                        });
+                    }
+                    // brake to previous band (retrograde thrust).
+                    if post == 1 && b > 0 {
+                        let a = (400.0 - 100.0 * uy).max(120.0);
+                        let v1 = BAND_REPS[b - 1];
+                        let l = (v * v - v1 * v1) / (2.0 * a);
+                        let (dx, dy) = (ux * l, uy * l);
+                        let mut samples = Vec::new();
+                        sample_path(0.0, 0.0, dx, dy, &mut samples);
+                        templates.push(LatTemplate {
+                            src_h: h as u8, src_b: b as u8, src_post: 1,
+                            dst_h: h as u8, dst_b: (b - 1) as u8, dst_post: 1,
+                            drow: (dy / LAT_CELL).round() as i32,
+                            dcol: (dx / LAT_CELL).round() as i32,
+                            cost: (v - v1) / a,
+                            samples,
+                        });
+                    }
+                    // turns: +-22.5 deg constant-speed arc, a_lat = 400.
+                    for dir in [-1i32, 1i32] {
+                        let dth = 2.0 * PI / N_HEAD as f32;
+                        let r = v * v / 400.0;
+                        let arc_t = (v * dth / 400.0).max(dth / ROTATION_SPEED);
+                        // Chord displacement: rotate u by dir*dth/2, length
+                        // 2 r sin(dth/2) (min: half a cell so low-speed
+                        // turns still relocate deterministically).
+                        let chord = (2.0 * r * (dth * 0.5).sin()).max(1.0);
+                        let cth = th + dir as f32 * dth * 0.5;
+                        let (dx, dy) = (cth.cos() * chord, cth.sin() * chord);
+                        // Sample along the arc at ~12px spacing (like
+                        // sample_path). A fixed sample count tunnels through
+                        // thin walls at high bands — band 8+ arcs span
+                        // 200-3000px, and under-sampled "valid" turn edges
+                        // poison every field value upstream of them.
+                        let arc_len = r * dth;
+                        let nseg = ((arc_len / 12.0).ceil() as usize).clamp(6, 512);
+                        let mut samples = Vec::new();
+                        let cx = -dir as f32 * uy * r;
+                        let cy = dir as f32 * ux * r;
+                        for k in 0..=nseg {
+                            let a0 = dir as f32 * dth * (k as f32 / nseg as f32);
+                            let (sa, ca) = (a0.sin(), a0.cos());
+                            let px = cx + (0.0 - cx) * ca - (0.0 - cy) * sa;
+                            let py = cy + (0.0 - cx) * sa + (0.0 - cy) * ca;
+                            samples.push((px, py));
+                        }
+                        let dst_h = ((h as i32 + dir).rem_euclid(N_HEAD as i32)) as u8;
+                        templates.push(LatTemplate {
+                            src_h: h as u8, src_b: b as u8, src_post: post as u8,
+                            dst_h, dst_b: b as u8, dst_post: post as u8,
+                            drow: (dy / LAT_CELL).round() as i32,
+                            dcol: (dx / LAT_CELL).round() as i32,
+                            cost: arc_t,
+                            samples,
+                        });
+                    }
+                    // flip: coast v*FLIP_T along heading, toggle posture.
+                    {
+                        let l = v * FLIP_T;
+                        let (dx, dy) = (ux * l, uy * l);
+                        let mut samples = Vec::new();
+                        sample_path(0.0, 0.0, dx, dy, &mut samples);
+                        templates.push(LatTemplate {
+                            src_h: h as u8, src_b: b as u8, src_post: post as u8,
+                            dst_h: h as u8, dst_b: b as u8, dst_post: (1 - post) as u8,
+                            drow: (dy / LAT_CELL).round() as i32,
+                            dcol: (dx / LAT_CELL).round() as i32,
+                            cost: FLIP_T,
+                            samples,
+                        });
+                    }
+                }
+            }
+        }
+        let n_templates = templates.len();
+        let mut by_dst: Vec<Vec<u16>> = vec![Vec::new(); N_HEAD * N_BAND * 2];
+        for (i, t) in templates.iter().enumerate() {
+            by_dst[(t.dst_h as usize * N_BAND + t.dst_b as usize) * 2 + t.dst_post as usize]
+                .push(i as u16);
+        }
+
+        let mut lat = TimeLattice {
+            min: hmin,
+            rows,
+            cols,
+            b_rows,
+            b_cols,
+            blocked,
+            templates,
+            by_dst,
+            valid: Vec::new(),
+            n_templates,
+            fields: Vec::new(),
+        };
+
+        // --- per-cell template validity (geometry only, field-independent) ----
+        let words_per_cell = (n_templates + 63) / 64;
+        let valid: Vec<u64> = (0..rows * cols)
+            .into_par_iter()
+            .flat_map_iter(|cell| {
+                let r = cell / cols;
+                let c = cell % cols;
+                let x0 = lat.min.0 + (c as f32 + 0.5) * LAT_CELL;
+                let y0 = lat.min.1 + (r as f32 + 0.5) * LAT_CELL;
+                let mut words = vec![0u64; words_per_cell];
+                if !lat.blocked_at(x0, y0) {
+                    for (ti, t) in lat.templates.iter().enumerate() {
+                        let ok = t.samples.iter().all(|&(dx, dy)| !lat.blocked_at(x0 + dx, y0 + dy));
+                        if ok {
+                            words[ti / 64] |= 1u64 << (ti % 64);
+                        }
+                    }
+                }
+                words
+            })
+            .collect();
+        lat.valid = valid;
+
+        // --- fields per remaining-pickup subset, by ascending popcount ---------
+        let n = pickups.len();
+        let full = (1usize << n) - 1;
+        let mut fields: Vec<Vec<f32>> = vec![Vec::new(); full + 1];
+        for popcnt in 1..=n {
+            let masks: Vec<usize> = (1..=full).filter(|m| m.count_ones() as usize == popcnt).collect();
+            let built: Vec<(usize, Vec<f32>)> = masks
+                .par_iter()
+                .map(|&m| (m, lat.build_field(m, pickups, &fields)))
+                .collect();
+            for (m, f) in built {
+                fields[m] = f;
+            }
+        }
+        lat.fields = fields;
+        lat
+    }
+
+    /// Backward Dijkstra for one remaining-set. `fields` holds all strict
+    /// subsets (smaller popcount) already built.
+    fn build_field(&self, remaining: usize, pickups: &[(f32, f32)], fields: &[Vec<f32>]) -> Vec<f32> {
+        use std::cmp::Reverse;
+        use std::collections::BinaryHeap;
+
+        let mut dist = vec![f32::INFINITY; self.n_nodes()];
+        let mut heap: BinaryHeap<Reverse<(u32, u32)>> = BinaryHeap::new();
+
+        // Seeds: any node whose cell center is within collection range of a
+        // pickup in the set transitions to the subset without that pickup,
+        // carrying its full velocity state.
+        let mut bits = remaining;
+        while bits != 0 {
+            let pk = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            let (px, py) = pickups[pk];
+            let sub = remaining & !(1usize << pk);
+            let r0 = (((py - 46.5 - self.min.1) / LAT_CELL).floor().max(0.0)) as usize;
+            let r1 = ((((py + 46.5 - self.min.1) / LAT_CELL).ceil()) as usize).min(self.rows - 1);
+            let c0 = (((px - 46.5 - self.min.0) / LAT_CELL).floor().max(0.0)) as usize;
+            let c1 = ((((px + 46.5 - self.min.0) / LAT_CELL).ceil()) as usize).min(self.cols - 1);
+            for r in r0..=r1 {
+                for c in c0..=c1 {
+                    let cx = self.min.0 + (c as f32 + 0.5) * LAT_CELL;
+                    let cy = self.min.1 + (r as f32 + 0.5) * LAT_CELL;
+                    let dx = cx - px;
+                    let dy = cy - py;
+                    if dx * dx + dy * dy > 46.5 * 46.5 {
+                        continue;
+                    }
+                    for h in 0..N_HEAD {
+                        for b in 0..N_BAND {
+                            for post in 0..2 {
+                                let node = self.node_idx(r, c, h, b, post);
+                                let v0 = if sub == 0 { 0.0 } else { fields[sub][node] };
+                                if v0 < dist[node] {
+                                    dist[node] = v0;
+                                    heap.push(Reverse((v0.to_bits(), node as u32)));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Backward relaxation over incoming templates.
+        while let Some(Reverse((dbits, node))) = heap.pop() {
+            let d = f32::from_bits(dbits);
+            let node = node as usize;
+            if d > dist[node] {
+                continue;
+            }
+            let post = node % 2;
+            let b = (node / 2) % N_BAND;
+            let h = (node / (2 * N_BAND)) % N_HEAD;
+            let cell = node / (2 * N_BAND * N_HEAD);
+            let r = cell / self.cols;
+            let c = cell % self.cols;
+            for &ti in &self.by_dst[(h * N_BAND + b) * 2 + post] {
+                let t = &self.templates[ti as usize];
+                let sr = r as i32 - t.drow;
+                let sc = c as i32 - t.dcol;
+                if sr < 0 || sc < 0 || sr >= self.rows as i32 || sc >= self.cols as i32 {
+                    continue;
+                }
+                let scell = sr as usize * self.cols + sc as usize;
+                let w = self.valid[scell * ((self.n_templates + 63) / 64) + ti as usize / 64];
+                if w & (1u64 << (ti as usize % 64)) == 0 {
+                    continue;
+                }
+                let src = self.node_idx(
+                    sr as usize, sc as usize,
+                    t.src_h as usize, t.src_b as usize, t.src_post as usize,
+                );
+                let nd = d + t.cost;
+                if nd < dist[src] {
+                    dist[src] = nd;
+                    heap.push(Reverse((nd.to_bits(), src as u32)));
+                }
+            }
+        }
+        dist
+    }
+
+    /// Time-to-go lookup for a sim state (seconds; INFINITY off-lattice).
+    /// Spirals up to 2 cells to escape wall-inflated dead cells.
+    fn eta(&self, x: f32, y: f32, vx: f32, vy: f32, rot: f32, mask: u32, full_mask: u32) -> f32 {
+        let remaining = (full_mask & !mask) as usize;
+        if remaining == 0 {
+            return 0.0;
+        }
+        let field = &self.fields[remaining];
+        let speed = (vx * vx + vy * vy).sqrt();
+        let (hvx, hvy) = if speed > 1.0 { (vx, vy) } else { (0.0, -1.0) };
+        let th = hvy.atan2(hvx);
+        let h = ((th / (2.0 * PI / N_HEAD as f32)).round() as i32).rem_euclid(N_HEAD as i32) as usize;
+        let b = band_of(speed);
+        // Posture: does the thrust vector point with or against velocity?
+        let ta = rot - PI * 0.5;
+        let post = if ta.cos() * hvx + ta.sin() * hvy >= 0.0 { 0 } else { 1 };
+        let c0 = (((x - self.min.0) / LAT_CELL) as i64).clamp(0, self.cols as i64 - 1) as usize;
+        let r0 = (((y - self.min.1) / LAT_CELL) as i64).clamp(0, self.rows as i64 - 1) as usize;
+        let mut best = field[self.node_idx(r0, c0, h, b, post)];
+        if best.is_finite() {
+            return best;
+        }
+        for rad in 1..=2i64 {
+            for dr in -rad..=rad {
+                for dc in -rad..=rad {
+                    if dr.abs() != rad && dc.abs() != rad {
+                        continue;
+                    }
+                    let r = r0 as i64 + dr;
+                    let c = c0 as i64 + dc;
+                    if r < 0 || c < 0 || r >= self.rows as i64 || c >= self.cols as i64 {
+                        continue;
+                    }
+                    let v = field[self.node_idx(r as usize, c as usize, h, b, post)];
+                    if v < best {
+                        best = v;
+                    }
+                }
+            }
+            if best.is_finite() {
+                return best + rad as f32 * LAT_CELL / speed.max(100.0);
+            }
+        }
+        f32::INFINITY
+    }
 }
 
 // --- geometry / grid helpers -------------------------------------------------

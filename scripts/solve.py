@@ -131,12 +131,32 @@ def main() -> int:
                     help="model the engine's high-speed collision skip exactly, allowing "
                          "tapes that thread walls on skipped frames (engine-legal, but "
                          "looks like clipping; off by default)")
+    ap.add_argument("--order", type=str, default=None,
+                    help="force a pickup collection order, e.g. '2,1,0' (diagnostic)")
+    ap.add_argument("--no-lattice", action="store_true",
+                    help="disable the velocity-aware time-lattice rank (px rank only)")
     args = ap.parse_args()
 
     level = args.level
     solver = spaceace_rl.PySolver(level, strict=not args.allow_clip)
     href = human_time(level)
     print(f"L{level}: {solver.n_pickups()} pickups; human ghost: {href and round(href, 3)}s")
+
+    order = [int(t) for t in args.order.split(",")] if args.order else None
+
+    # Velocity-aware time lattice: available for small pickup counts. Build
+    # it up front (one-time cost, shared by every solve/refine below) and
+    # report its own ETA for the level as a sanity probe.
+    use_lattice = not args.no_lattice and solver.n_pickups() <= 4
+    if use_lattice:
+        game = spaceace_rl.PyGameInstance(level, 10)
+        obs = game.reset()
+        eta = solver.lattice_eta(obs[0], obs[1], 0.0, 0.0, 0.0, 0)
+        if eta != eta or eta == float("inf"):  # NaN or inf: lattice unusable
+            print("  [lattice] unavailable for this level; falling back to px rank")
+            use_lattice = False
+        else:
+            print(f"  [lattice] spawn ETA {eta:.2f}s")
 
     best: list[int] | None = None
 
@@ -157,23 +177,34 @@ def main() -> int:
 
     # --- stage 1: global portfolio -------------------------------------------
     # With an incumbent, global solves are capped below it and rarely win;
-    # spend the budget on warm-started refinement instead.
+    # spend the budget on warm-started refinement instead. Lattice-ranked
+    # solves run first (they value momentum/corners/terminal dives correctly
+    # and historically complete far more often); px-ranked mixes add
+    # diversity after.
     t_start = time.time()
-    portfolio = [] if best is not None else list(
-        itertools.product(range(args.seeds), [(1.0, 300.0), (1.0, 400.0), (1.2, 300.0)]))
-    for seed, (mix, proj_div) in portfolio:
-        if best is not None and (seed, (mix, proj_div)) != portfolio[0] and time.time() - t_start > args.budget_min * 30:
-            break  # got something and half the budget is gone: move to refinement
+    portfolio: list[tuple[str, dict]] = []
+    if best is None:
+        if use_lattice:
+            portfolio += [(f"lat s{s2}", dict(seed=s2 * 1000 + 1, lattice=True))
+                          for s2 in range(args.seeds)]
+        portfolio += [(f"px s{s2} mix={mix} pd={pd}", dict(seed=s2 * 1000 + 1, mix=mix, proj_div=pd))
+                      for s2, (mix, pd) in itertools.product(range(args.seeds),
+                                                             [(1.0, 300.0), (1.0, 400.0)])]
+        # Cautious profile: hard doom pressure completes reliably (slower
+        # tapes, but warm-started refinement only needs *an* incumbent).
+        portfolio += [(f"px-safe s{s2}", dict(seed=s2 * 1000 + 1, mix=1.0, proj_div=300.0,
+                                              doom_scale=2.0))
+                      for s2 in range(args.seeds)]
+    for label, kw in portfolio:
         cap = min(horizon, len(best) - 1) if best else horizon
-        tape = solver.solve(width=args.width, max_ticks=cap, seed=seed * 1000 + 1,
-                            mix=mix, proj_div=proj_div)
+        tape = solver.solve(width=args.width, max_ticks=cap, order=order, **kw)
         if tape is not None and (best is None or len(tape) < len(best)):
             best = list(tape)
-            print(f"  [solve] seed={seed} mix={mix} pd={proj_div}: {len(best)} ticks ({len(best)/60:.3f}s)")
+            print(f"  [solve] {label}: {len(best)} ticks ({len(best)/60:.3f}s)", flush=True)
         elif tape is None:
-            print(f"  [solve] seed={seed} mix={mix} pd={proj_div}: no completion")
+            print(f"  [solve] {label}: no completion", flush=True)
         if best is not None and time.time() - t_start > args.budget_min * 30:
-            break
+            break  # got something and half the budget is gone: move to refinement
 
     if best is None:
         print("FAILED: no completing tape found; increase --width or --budget-min")
@@ -184,25 +215,27 @@ def main() -> int:
     # "global" = warm-started whole-map re-search (radius covers everything):
     # a full beam solve that provably can't do worse than the incumbent. It
     # is the workhorse; tubes and polish grind out the rest.
+    lat = use_lattice  # shorthand for stage tables
     if args.deep:
         stages = [
-            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3)),
-            ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
+            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3, lattice=lat)),
+            ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1, lattice=lat)),
             ("polish", {}),
             ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
-            ("refine", dict(radius=150.0, quant_pos=1.5, quant_vel=3.0, rot_bins=128, doom_scale=0.1)),
-            ("suffix", {}),
+            ("refine", dict(radius=150.0, quant_pos=1.5, quant_vel=3.0, rot_bins=128, doom_scale=0.1, lattice=lat)),
+            ("suffix", dict(lattice=lat)),
+            ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
             ("polish", {}),
         ]
         stale_limit = 3 * len(stages)
     else:
         stages = [
-            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3)),
-            ("refine", dict(radius=200.0, quant_pos=2.5, quant_vel=5.0, doom_scale=0.1)),
+            ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3, lattice=lat)),
+            ("refine", dict(radius=200.0, quant_pos=2.5, quant_vel=5.0, doom_scale=0.1, lattice=lat)),
             ("polish", {}),
             ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
             ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
-            ("suffix", {}),
+            ("suffix", dict(lattice=lat)),
         ]
         stale_limit = 2 * len(stages)
     schedule = itertools.cycle(stages)
@@ -214,7 +247,7 @@ def main() -> int:
         before = len(best)
         if kind == "refine":
             r = solver.refine(bytes(best), width=args.refine_width, seed=round_idx * 31,
-                              mix=1.0, proj_div=300.0, **kw)
+                              mix=1.0, proj_div=300.0, order=order, **kw)
             if r:
                 best = list(r)
         elif kind == "polish":
@@ -227,7 +260,7 @@ def main() -> int:
             for frac in (0.75, 0.5, 0.25):
                 r = solver.resolve_suffix(bytes(best), int(len(best) * frac),
                                           width=args.width, seed=round_idx * 13 + int(frac * 10),
-                                          mix=1.0, proj_div=300.0)
+                                          mix=1.0, proj_div=300.0, order=order, **kw)
                 if r and len(r) < len(best):
                     best = list(r)
         gained = before - len(best)

@@ -81,10 +81,15 @@ Always use `uv sync --reinstall-package spaceace-rl` to rebuild.
 - `scripts/solve.py --level N --budget-min M` is anytime: rerunning keeps
   improving the stored tape. `--fresh` ignores the incumbent sidecar.
 - Debug telemetry: `ACE_DEBUG=1` prints per-beam-layer frontier stats.
-- Key knobs: `width` (quality ∝ width), `mix`/`proj_div` (velocity reward
-  strength/horizon), `quant_*` (dedup granularity), `doom_scale` (safety
-  pressure; low inside warm-started refines), `turn_w` (pickup-arrival
-  alignment).
+- Key knobs: `width` (quality ∝ width), `lattice` (velocity-aware
+  time-to-go rank — the strongest rank for ≤4-pickup levels; the driver
+  uses it automatically), `mix`/`proj_div` (px-rank velocity reward
+  strength/horizon), `quant_*` (dedup granularity), `doom_scale` (px-rank
+  safety pressure; low inside warm refines, 2.0 for cautious fresh
+  solves), `turn_w` (pickup-arrival alignment), `cell_strat_m`
+  (selection-diversity protection per 128px cell × speed band).
+- `scripts/analyze_tape.py --level N --out t.png` — per-leg splits, speed
+  profile, slow sections, speed-colored trajectory render.
 - Diagnostic loop for improving results: see `docs/SOLVER.md`.
 
 ## Beads Issue Tracker

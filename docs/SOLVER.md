@@ -54,19 +54,47 @@ action tape offline; the `ace` agent replays it.
    the optimal remaining-tour length from each pickup. `h(x, y, mask)` =
    min over remaining pickups of field distance + optimal tour. This is a
    route lower bound in px.
-4. **Rank** (the heart — most failures lived here; see Lessons):
-   `rank = (1-mix)·h_now + mix·h_stop + doom + turn_pen + jitter`, where
-   `h_stop` is h at the velocity-projected position (LOS-clamped, with
-   fly-through pickup credit), `doom` is a physical can-it-still-brake
-   penalty, and `turn_pen` charges misaligned arrival velocity at pickups.
-5. **Anytime refinement** — `refine` (corridor + warm start), `polish`
-   (exact local search on the tape), `resolve_suffix` (re-plan tails),
-   `resolve_prefix` (rendezvous splicing; see Lessons for why it mostly
-   fails).
-6. **Driver** (`scripts/solve.py`) — portfolio of global solves →
-   improvement loop cycling global/tube refines, polish, suffix re-solves
-   → validate on the engine → save sidecar + dashboard ghosts (only when
-   strictly faster).
+4. **px rank** (the original heart — most early failures lived here; see
+   Lessons): `rank = (1-mix)·h_now + mix·h_stop + doom + turn_pen +
+   jitter`, where `h_stop` is h at the ballistic-parabola-projected
+   position (wall-clamped per segment, with fly-through pickup credit at
+   45px), `doom` is a graded escape-feasibility penalty
+   (min(stop-model, arc-model), 6×deficit capped at 2500 — doom_scale 2.0
+   restores cautious-but-reliable completion for fresh globals), and
+   `turn_pen` charges misaligned pickup arrival in time-calibrated px
+   (253·misalign + 0.875·waste).
+5. **Time lattice** (`TimeLattice`, `lattice=true` — the 2026-07 upgrade
+   that broke the 21s plateau): a velocity-aware time-to-go value
+   function V_S(20px cell, 16 velocity headings, 11 speed bands,
+   pro/retro posture) per remaining-pickup subset (n ≤ 4), built in ~1s
+   by backward Dijkstra over motion-primitive edges (cruise / gravity-
+   adjusted accel & brake / constant-speed turn arcs with swept
+   clearance / 0.72s posture flips that drift v·0.72s). Touching a
+   pickup seeds V_S(n) = V_{S\p}(n) at the same velocity node, so
+   arrival momentum carries across legs and the free terminal dash
+   emerges naturally. Rank = V·380px + jitter; off-lattice states fall
+   back to 30000 + h_px. Corner speed limits, flip commitment distances,
+   and pickup-order-by-time all price physically. The lattice's spawn
+   ETA prints at build time — a useful per-level sanity probe.
+6. **Selection** — mask groups get merit-weighted quotas
+   (exp(-(h_best_group - h_best_global)/350), retain gate at ≥2 groups on
+   doom-free h); within a group, survivors are drawn round-robin across
+   (128px cell × 3 speed band) buckets (≤ cell_strat_m each, protection
+   gated to group_best_rank + 900) before rank fills the rest. This keeps
+   wide corner entries and slow-careful vs fast-needle pacings alive for
+   the 20-40 ticks until their payoff — beams die from monocultures, not
+   from missing width.
+7. **Anytime refinement** — `refine` (corridor + warm start), `polish`
+   (exact local search on the tape; move set includes net-rotation-
+   preserving pair deletes, pair strips, near transpositions and thrust
+   retiming), `resolve_suffix` (re-plan tails), `resolve_prefix`
+   (rendezvous splicing; see Lessons for why it mostly fails).
+8. **Driver** (`scripts/solve.py`) — portfolio of global solves (lattice
+   first, then px, then px-safe doom_scale=2.0) → improvement loop
+   cycling lattice/px global and tube refines, polish, suffix re-solves →
+   validate on the engine → save sidecar + dashboard ghosts (only when
+   strictly faster). `--order 2,1,0` forces a pickup order (diagnostics);
+   `--no-lattice` disables the lattice rank.
 
 ## Lessons learned (chronological — each cost real debugging time)
 
@@ -136,7 +164,43 @@ action tape offline; the `ace` agent replays it.
     frontier stats (best h + position, doomed fraction, mean speed).
     Every major bug above was found by watching those lines, then
     `trace`/`h_at` probes and per-segment speed analysis of tapes
-    (see the "diagnostic loop" below).
+    (see the "diagnostic loop" below; `scripts/analyze_tape.py` is that
+    loop as a tool — per-leg splits, speed profile, slow sections, and a
+    speed-colored trajectory render).
+13. **The px rank could not represent the elite line at all** (2026-07
+    diagnosis). Stop-model doom flagged 21.9% of the user's own surviving
+    21.86s ghost as dead (it modeled stop-in-place; experts arc);
+    straight-segment projection sagged 50px below the true parabola over
+    a 1s horizon (more than the capture radius, so fly-through credit
+    rewarded aim that missed); LOS clamping killed momentum credit
+    exactly at corners; and distance-px as a currency cannot see that a
+    2400px terminal dive is nearly free while a 370px bowl exit against
+    gravity is not. Fix: rank in (approximate) SECONDS via the time
+    lattice; keep the px rank as fallback and for n > 4 levels.
+14. **Selection monoculture, not width, was the binding constraint.**
+    Reachable quantized cells outnumber any practical width 5-30×, so
+    top-k-by-rank keeps tens of thousands of ±6px micro-variants of one
+    line. Whole-beam extinctions (everyone commits to the same doomed
+    dive) are pace monocultures. Fix: bucketed round-robin protection
+    (cell × speed band) — and two bugs to never re-introduce: capping
+    buckets with truncate() capped the WHOLE beam at cells×m
+    (near-extinction at 432 states); ungated round-robin handed protected
+    slots to dead/off-lattice buckets ("walking dead") at the same
+    priority as viable lines.
+15. **Under-sampled swept paths poison the lattice.** Turn-arc templates
+    sampled at a fixed 7 points tunneled through thin walls at high
+    bands (65-100% of band-7+ turn edges on L7 were wall-crossing but
+    marked valid), silently injecting ~5s of optimism into V (spawn ETA
+    17.6s → 22.7s after the fix). Sample swept paths at ~12px spacing,
+    always.
+16. **`radius=1e9` "global" refines never ran before 2026-07.** The
+    corridor mark loop dilated by radius/cell ≈ 4×10⁷ cells per tape
+    position — an effectively infinite loop. Every driver run that hit a
+    global-refine stage silently hung there (this is why historical runs
+    produced no round lines and why timeout-killed sweeps never saved
+    sidecars). Clamped now (whole-map dilation = grid diameter). The
+    first actually-executed warm global lattice refine took L7
+    26.58s → 20.03s in ONE round.
 
 ## The diagnostic loop (how to keep improving)
 
@@ -155,19 +219,20 @@ action tape offline; the `ace` agent replays it.
 
 ## Known open problems
 
-- **The elite line.** A top player reportedly ran L7 in ~18-19s on this
-  build ("same route, just faster"). The solver's toolset converges at
-  ~21s clean. The remaining gap concentrates in climb/turn segments that
-  need needle-precise bang-bang control (full burn → one flip → full
-  brake); tick-level beams merge/prune those needles. Tracked in beads:
-  segment-level optimal-control search (parameterize burn/flip/brake
-  switch times, exhaustively search the low-dimensional switch space,
-  reconnect with a beam re-solve of the remainder).
+- **The last ~0.6s to the strict floor.** With the time lattice the
+  toolset converges at ~19.6s on L7 (validated; vs 21.05s before).
+  Corner-model kinematics put the strict no-clip floor at ~19.0-19.8s;
+  the ~18s human WR almost certainly leans on the >316px/s
+  alternate-tick collision quirk (banned for ghosts — at 18s pace the
+  ship is above the threshold ~90% of the run). Remaining fat vs
+  physics targets: P1→P2 under-spike pendulum (~0.9s: carries ~270px/s
+  where ~350-400 fits the 194px gates) and the descent slalom (~0.7s).
 - Beams ossify from the front (lesson 10) — a principled prefix improver
   is an open algorithmic problem.
-- `polish` move set is basic (delete/overwrite/boundary-shift/insert);
-  smarter moves (rotation-pair cancellation, thrust-pulse retiming) are
-  unexplored.
+- Lattice fidelity: 20px cells / 22.5° headings / band quantization make
+  V pessimistic in tight slaloms (no thrust-during-rotation, whole-arc
+  clearance). Finer bands near the pinch speeds or compound-arc
+  templates could price the last few hundred px/s of cornering.
 
 ## Practical notes
 

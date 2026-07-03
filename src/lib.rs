@@ -383,13 +383,16 @@ impl PySolver {
     }
 
     /// Beam-search a completing tape from spawn. Returns None if the beam
-    /// dies or max_ticks is exhausted.
-    #[pyo3(signature = (width=50_000, max_ticks=4000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, doom_scale=1.0, turn_w=1.0, jitter=3.0))]
+    /// dies or max_ticks is exhausted. `order` forces a pickup collection
+    /// order (portfolio/diagnostic tool); `cell_strat_m` caps survivors per
+    /// 128px cell in the positional-diversity selection (0 = plain top-k).
+    #[pyo3(signature = (width=50_000, max_ticks=4000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, doom_scale=1.0, turn_w=1.0, jitter=3.0, order=None, cell_strat_m=48, lattice=false))]
     #[allow(clippy::too_many_arguments)]
     fn solve(&self, py: Python<'_>, width: usize, max_ticks: u32, seed: u64,
              quant_pos: f32, quant_vel: f32, rot_bins: u32,
-             lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32) -> Option<Vec<u8>> {
-        let p = BeamParams { width, max_ticks, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter };
+             lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32,
+             order: Option<Vec<u8>>, cell_strat_m: usize, lattice: bool) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter, order, cell_strat_m, lattice };
         py.allow_threads(|| self.inner.solve(&p))
     }
 
@@ -401,6 +404,13 @@ impl PySolver {
     /// Heuristic probe: remaining-route lower bound (px) at a position.
     fn h_at(&self, x: f32, y: f32, mask: u32) -> i64 {
         self.inner.h_at(x, y, mask)
+    }
+
+    /// Lattice probe: velocity-aware time-to-go estimate (seconds) at a
+    /// full state. NaN when the lattice is unavailable (n_pickups > 4),
+    /// +inf off-lattice. Builds the lattice on first call (~10-30s).
+    fn lattice_eta(&self, py: Python<'_>, x: f32, y: f32, vx: f32, vy: f32, rot: f32, mask: u32) -> f64 {
+        py.allow_threads(|| self.inner.lattice_eta_at(x, y, vx, vy, rot, mask))
     }
 
     /// Trace of (tick, x, y, h) along a tape, sampled every `stride` ticks.
@@ -419,12 +429,13 @@ impl PySolver {
     /// Corridor refinement: re-search inside a `radius`-px tube around the
     /// reference tape with (typically finer) quantization. Returns a strictly
     /// shorter tape or None.
-    #[pyo3(signature = (tape, radius=150.0, width=100_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, lookahead=1.0, mix=1.0, proj_div=400.0, doom_scale=0.1, turn_w=1.0, jitter=3.0))]
+    #[pyo3(signature = (tape, radius=150.0, width=100_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, lookahead=1.0, mix=1.0, proj_div=400.0, doom_scale=0.1, turn_w=1.0, jitter=3.0, order=None, cell_strat_m=48, lattice=false))]
     #[allow(clippy::too_many_arguments)]
     fn refine(&self, py: Python<'_>, tape: Vec<u8>, radius: f32, width: usize,
               seed: u64, quant_pos: f32, quant_vel: f32, rot_bins: u32,
-              lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32) -> Option<Vec<u8>> {
-        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter };
+              lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32,
+              order: Option<Vec<u8>>, cell_strat_m: usize, lattice: bool) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter, order, cell_strat_m, lattice };
         py.allow_threads(|| self.inner.refine(&tape, radius, &p))
     }
 
@@ -432,25 +443,26 @@ impl PySolver {
     /// tape's state at `rendezvous_tick` (within tolerances), splice the
     /// original suffix, and validate by exact replay. Returns a strictly
     /// shorter tape or None.
-    #[pyo3(signature = (tape, rendezvous_tick, tol_pos=3.0, tol_vel=5.0, tol_rot=0.04, width=100_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, lookahead=1.0, mix=1.0, proj_div=300.0, doom_scale=0.3, turn_w=1.0, jitter=3.0))]
+    #[pyo3(signature = (tape, rendezvous_tick, tol_pos=3.0, tol_vel=5.0, tol_rot=0.04, width=100_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, lookahead=1.0, mix=1.0, proj_div=300.0, doom_scale=0.3, turn_w=1.0, jitter=3.0, cell_strat_m=0, lattice=false))]
     #[allow(clippy::too_many_arguments)]
     fn resolve_prefix(&self, py: Python<'_>, tape: Vec<u8>, rendezvous_tick: usize,
                       tol_pos: f32, tol_vel: f32, tol_rot: f32,
                       width: usize, seed: u64, quant_pos: f32, quant_vel: f32,
                       rot_bins: u32, lookahead: f32, mix: f32, proj_div: f32,
-                      doom_scale: f32, turn_w: f32, jitter: f32) -> Option<Vec<u8>> {
-        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter };
+                      doom_scale: f32, turn_w: f32, jitter: f32, cell_strat_m: usize, lattice: bool) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter, order: None, cell_strat_m, lattice };
         py.allow_threads(|| self.inner.resolve_prefix(&tape, rendezvous_tick, tol_pos, tol_vel, tol_rot, &p))
     }
 
     /// Re-plan the suffix from `from_tick`; returns a strictly shorter full
     /// tape or None.
-    #[pyo3(signature = (tape, from_tick, width=50_000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, doom_scale=1.0, turn_w=1.0, jitter=3.0))]
+    #[pyo3(signature = (tape, from_tick, width=50_000, seed=0, quant_pos=6.0, quant_vel=12.0, rot_bins=64, lookahead=1.0, mix=0.8, proj_div=700.0, doom_scale=1.0, turn_w=1.0, jitter=3.0, order=None, cell_strat_m=48, lattice=false))]
     #[allow(clippy::too_many_arguments)]
     fn resolve_suffix(&self, py: Python<'_>, tape: Vec<u8>, from_tick: usize,
                       width: usize, seed: u64, quant_pos: f32, quant_vel: f32,
-                      rot_bins: u32, lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32) -> Option<Vec<u8>> {
-        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter };
+                      rot_bins: u32, lookahead: f32, mix: f32, proj_div: f32, doom_scale: f32, turn_w: f32, jitter: f32,
+                      order: Option<Vec<u8>>, cell_strat_m: usize, lattice: bool) -> Option<Vec<u8>> {
+        let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter, order, cell_strat_m, lattice };
         py.allow_threads(|| self.inner.resolve_suffix(&tape, from_tick, &p))
     }
 }
