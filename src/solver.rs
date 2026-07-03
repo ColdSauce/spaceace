@@ -1834,10 +1834,14 @@ fn build_checkpoints(solver: &AceSolver, tape: &[u8], every: usize) -> Vec<SimSt
 
 // --- time lattice --------------------------------------------------------------
 
-/// Lattice discretization. 20px cells x 16 velocity headings x speed bands x
-/// thrust posture (prograde/retrograde). ~5.5M nodes on L7.
+/// Lattice discretization. 20px cells x 32 velocity headings x speed bands x
+/// thrust posture (prograde/retrograde). 32 headings (11.25° bins) halve
+/// turn-arc lengths vs 16 — the difference between "fast flight through a
+/// gently bending corridor prices finitely" and "V=inf above 300px/s"
+/// (L3's maze-mouth descent was mispriced by 5-6s exactly this way,
+/// making the solver brake to 60-100px/s where the human flies 380-500).
 const LAT_CELL: f32 = 20.0;
-const N_HEAD: usize = 16;
+const N_HEAD: usize = 32;
 /// Representative speeds per band (px/s). Band boundaries are midpoints.
 const BAND_REPS: [f32; 11] = [
     30.0, 80.0, 150.0, 240.0, 350.0, 480.0, 640.0, 840.0, 1080.0, 1360.0, 1700.0,
@@ -1858,8 +1862,10 @@ fn bgroup_of(band: usize) -> usize {
         _ => 3,
     }
 }
-/// Wall inflation for lattice clearance (px): ship half-wingspan plus margin.
-const LAT_INFLATION: f32 = 26.0;
+/// Wall inflation for lattice clearance (px): the ship's true half-wingspan
+/// (24px). The former 2px margin compounded with cell/arc coarseness into
+/// multi-second overpricing of tight-corridor flight.
+const LAT_INFLATION: f32 = 24.0;
 
 /// A motion-primitive edge template. Displacement and cost depend only on
 /// (heading, band, posture), never on the cell, so edges are precomputed
@@ -1991,7 +1997,7 @@ impl TimeLattice {
         let n_pk = pickups.len();
         let exact_subsets = n_pk <= 4
             || ((1usize << n_pk) - 1).saturating_mul(n_nodes_est).saturating_mul(4)
-                <= 3_500_000_000;
+                <= 4_400_000_000;
 
         // --- edge templates ---------------------------------------------------
         let mut templates: Vec<LatTemplate> = Vec::new();
