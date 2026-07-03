@@ -499,7 +499,9 @@ impl AceSolver {
     fn ensure_lattice(&self) -> Option<&TimeLattice> {
         self.lattice
             .get_or_init(|| {
-                if self.n_pickups == 0 || self.n_pickups > 4 {
+                // Exact subset fields up to 4 pickups; hybrid single-field
+                // chaining up to 12 (rem_t is 2^n * n).
+                if self.n_pickups == 0 || self.n_pickups > 12 {
                     return None;
                 }
                 let t0 = std::time::Instant::now();
@@ -513,12 +515,13 @@ impl AceSolver {
                     self.spawn.x, self.spawn.y, 0.0, -1.0, self.spawn.rot, 0, self.full_mask,
                 );
                 eprintln!(
-                    "[lattice] built in {:.1}s: {} cells x {} headings x {} bands x 2, {} fields; spawn ETA {:.2}s",
+                    "[lattice] built in {:.1}s: {} cells x {} headings x {} bands x 2, {} {} fields; spawn ETA {:.2}s",
                     t0.elapsed().as_secs_f32(),
                     lat.rows * lat.cols,
                     N_HEAD,
                     BAND_REPS.len(),
-                    lat.fields.len().saturating_sub(1),
+                    if lat.exact_subsets { lat.fields.len().saturating_sub(1) } else { lat.fields.len() },
+                    if lat.exact_subsets { "exact-subset" } else { "hybrid single-pickup" },
                     spawn_eta,
                 );
                 if !spawn_eta.is_finite() {
@@ -1888,6 +1891,10 @@ struct TimeLattice {
     b_rows: usize,
     b_cols: usize,
     blocked: Vec<bool>,
+    /// Raw wall segments for line-of-sight checks on spiral fallbacks (the
+    /// inflated grid can't be used there: the querying state usually sits
+    /// inside an inflation zone).
+    lines: Vec<[f32; 4]>,
     templates: Vec<LatTemplate>,
     /// template indices grouped by destination (h, b, post) for the backward
     /// relaxation.
@@ -1896,8 +1903,17 @@ struct TimeLattice {
     /// clear of (inflated) walls.
     valid: Vec<u64>,
     n_templates: usize,
-    /// fields[remaining_mask] (index 0 unused), each rows*cols*N_HEAD*N_BAND*2.
+    /// Exact mode (n ≤ 4): fields[remaining_mask] (index 0 unused).
+    /// Hybrid mode (n > 4): fields[p] = single-pickup time field T_p, and
+    /// eta chains min_p [T_p(node) + rem_t[remaining][p]] like the px h —
+    /// velocity-exact on the first leg, optimistic time-DP for the tour.
     fields: Vec<Vec<f32>>,
+    exact_subsets: bool,
+    n_pickups: usize,
+    /// Hybrid mode: rem_t[mask * n + p] = time (s) of the shortest
+    /// pickup-to-pickup tour starting at p visiting all of mask (p ∈ mask),
+    /// built from pair times read out of the single-pickup fields.
+    rem_t: Vec<f32>,
 }
 
 #[inline]
@@ -1942,6 +1958,17 @@ impl TimeLattice {
         let b_rows = (extent.0 / 10.0) as usize + 1;
         let b_cols = (extent.1 / 10.0) as usize + 1;
         let blocked = build_blocked(b_rows, b_cols, hmin, 10.0, lines, LAT_INFLATION);
+
+        // Exact subset fields price arrival-velocity coupling across legs
+        // (the hybrid's pickup-to-pickup times assume best-case departure
+        // states). Use exact whenever the 2^n - 1 fields fit in a memory
+        // budget — n alone is the wrong gate (7 pickups on a small map is
+        // 1.9GB and worth it; 9 on a big map is 33GB and impossible).
+        let n_nodes_est = rows * cols * N_HEAD * N_BAND * 2;
+        let n_pk = pickups.len();
+        let exact_subsets = n_pk <= 4
+            || ((1usize << n_pk) - 1).saturating_mul(n_nodes_est).saturating_mul(4)
+                <= 3_500_000_000;
 
         // --- edge templates ---------------------------------------------------
         let mut templates: Vec<LatTemplate> = Vec::new();
@@ -2080,11 +2107,15 @@ impl TimeLattice {
             b_rows,
             b_cols,
             blocked,
+            lines: lines.to_vec(),
             templates,
             by_dst,
             valid: Vec::new(),
             n_templates,
             fields: Vec::new(),
+            exact_subsets,
+            n_pickups: pickups.len(),
+            rem_t: Vec::new(),
         };
 
         // --- per-cell template validity (geometry only, field-independent) ----
@@ -2110,21 +2141,108 @@ impl TimeLattice {
             .collect();
         lat.valid = valid;
 
-        // --- fields per remaining-pickup subset, by ascending popcount ---------
+        // --- fields ------------------------------------------------------------
         let n = pickups.len();
-        let full = (1usize << n) - 1;
-        let mut fields: Vec<Vec<f32>> = vec![Vec::new(); full + 1];
-        for popcnt in 1..=n {
-            let masks: Vec<usize> = (1..=full).filter(|m| m.count_ones() as usize == popcnt).collect();
-            let built: Vec<(usize, Vec<f32>)> = masks
-                .par_iter()
-                .map(|&m| (m, lat.build_field(m, pickups, &fields)))
-                .collect();
-            for (m, f) in built {
-                fields[m] = f;
+        if lat.exact_subsets {
+            // Exact mode: one field per remaining-pickup subset, ascending
+            // popcount so V_S chains through V_{S\p} at the same velocity
+            // node (arrival momentum carries across legs).
+            let full = (1usize << n) - 1;
+            let mut fields: Vec<Vec<f32>> = vec![Vec::new(); full + 1];
+            for popcnt in 1..=n {
+                let masks: Vec<usize> = (1..=full).filter(|m| m.count_ones() as usize == popcnt).collect();
+                let built: Vec<(usize, Vec<f32>)> = masks
+                    .par_iter()
+                    .map(|&m| (m, lat.build_field(m, pickups, &fields)))
+                    .collect();
+                for (m, f) in built {
+                    fields[m] = f;
+                }
             }
+            lat.fields = fields;
+        } else {
+            // Hybrid mode (n > 4): 2^n subset fields don't fit, so build one
+            // single-pickup time field each and chain the tour with a
+            // time-unit subset DP (velocity-exact first leg, optimistic
+            // pickup-to-pickup times after — the time analog of the px h).
+            let empty: Vec<Vec<f32>> = Vec::new();
+            let fields: Vec<Vec<f32>> = (0..n)
+                .into_par_iter()
+                .map(|p| lat.build_field(1usize << p, pickups, &empty))
+                .collect();
+            lat.fields = fields;
+            // pair_t[p][q]: best time from touching p (any velocity state at
+            // p's cell) to touching q. Optimistic — assumes the arrival
+            // state at p is whatever departs best toward q.
+            let mut pair_t = vec![f32::INFINITY; n * n];
+            for p in 0..n {
+                for q in 0..n {
+                    if p == q {
+                        continue;
+                    }
+                    let c0 = (((pickups[p].0 - lat.min.0) / LAT_CELL) as i64).clamp(0, lat.cols as i64 - 1);
+                    let r0 = (((pickups[p].1 - lat.min.1) / LAT_CELL) as i64).clamp(0, lat.rows as i64 - 1);
+                    let field = &lat.fields[q];
+                    let mut best = f32::INFINITY;
+                    'spiral: for rad in 0..=3i64 {
+                        for dr in -rad..=rad {
+                            for dc in -rad..=rad {
+                                if dr.abs() != rad && dc.abs() != rad {
+                                    continue;
+                                }
+                                let r = r0 + dr;
+                                let c = c0 + dc;
+                                if r < 0 || c < 0 || r >= lat.rows as i64 || c >= lat.cols as i64 {
+                                    continue;
+                                }
+                                for h in 0..N_HEAD {
+                                    for b in 0..N_BAND {
+                                        for post in 0..2 {
+                                            let v = field[lat.node_idx(r as usize, c as usize, h, b, post)];
+                                            if v < best {
+                                                best = v;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if best.is_finite() {
+                            break 'spiral;
+                        }
+                    }
+                    pair_t[p * n + q] = best;
+                }
+            }
+            let full = (1usize << n) - 1;
+            let mut rem_t = vec![f32::INFINITY; (full + 1) * n];
+            for p in 0..n {
+                rem_t[(1usize << p) * n + p] = 0.0;
+            }
+            for mask in 1..=full {
+                if mask.count_ones() < 2 {
+                    continue;
+                }
+                for p in 0..n {
+                    if mask & (1 << p) == 0 {
+                        continue;
+                    }
+                    let rest = mask ^ (1 << p);
+                    let mut best = f32::INFINITY;
+                    for q in 0..n {
+                        if rest & (1 << q) == 0 {
+                            continue;
+                        }
+                        let v = pair_t[p * n + q] + rem_t[rest * n + q];
+                        if v < best {
+                            best = v;
+                        }
+                    }
+                    rem_t[mask * n + p] = best;
+                }
+            }
+            lat.rem_t = rem_t;
         }
-        lat.fields = fields;
         lat
     }
 
@@ -2214,28 +2332,100 @@ impl TimeLattice {
         dist
     }
 
+    /// Value at one node for a remaining set: exact-subset field lookup, or
+    /// the hybrid chain min_p [T_p(node) + rem_t[remaining][p]].
+    #[inline]
+    fn node_value(&self, node: usize, remaining: usize) -> f32 {
+        if self.exact_subsets {
+            return self.fields[remaining][node];
+        }
+        let n = self.n_pickups;
+        let mut best = f32::INFINITY;
+        let mut bits = remaining;
+        while bits != 0 {
+            let p = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            let v = self.fields[p][node] + self.rem_t[remaining * n + p];
+            if v < best {
+                best = v;
+            }
+        }
+        best
+    }
+
+    /// Node value linearly interpolated across the two nearest speed bands.
+    /// Band boundaries are the largest quantization cliffs in the rank (two
+    /// siblings 10px/s apart can straddle a boundary and differ by hundreds
+    /// of px-equivalent); midpoint-continuous blending removes that noise
+    /// for one extra lookup. If one side is off-lattice, use the other.
+    #[inline]
+    fn node_value_interp(&self, r: usize, c: usize, h: usize, speed: f32, post: usize, remaining: usize) -> f32 {
+        let b = band_of(speed);
+        let v_b = self.node_value(self.node_idx(r, c, h, b, post), remaining);
+        let (b2, t) = if speed >= BAND_REPS[b] {
+            if b + 1 < N_BAND {
+                (b + 1, (speed - BAND_REPS[b]) / (BAND_REPS[b + 1] - BAND_REPS[b]))
+            } else {
+                (b, 0.0)
+            }
+        } else if b > 0 {
+            (b - 1, (BAND_REPS[b] - speed) / (BAND_REPS[b] - BAND_REPS[b - 1]))
+        } else {
+            (b, 0.0)
+        };
+        if b2 == b || t <= 0.0 {
+            return v_b;
+        }
+        let v_2 = self.node_value(self.node_idx(r, c, h, b2, post), remaining);
+        match (v_b.is_finite(), v_2.is_finite()) {
+            (true, true) => v_b * (1.0 - t) + v_2 * t,
+            (true, false) => v_b,
+            (false, true) => v_2,
+            _ => f32::INFINITY,
+        }
+    }
+
+    /// True iff the segment (x0,y0)-(x1,y1) crosses no wall. Used to gate
+    /// spiral fallbacks: without it, a fallback cell 2 diagonal cells away
+    /// (~57px) can sit on the far side of a thin wall (live centers are only
+    /// guaranteed ≥52px apart), silently valuing the state from a region it
+    /// cannot reach — worst exactly at functional walls where the two sides
+    /// differ by a multi-second detour.
+    #[inline]
+    fn los_clear(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> bool {
+        for l in &self.lines {
+            if segments_intersect(x0, y0, x1, y1, l[0], l[1], l[2], l[3]) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Time-to-go lookup for a sim state (seconds; INFINITY off-lattice).
-    /// Spirals up to 2 cells to escape wall-inflated dead cells.
+    /// Spirals up to 2 cells to escape wall-inflated dead cells; fallback
+    /// cells must pass a line-of-sight check from the true position.
     fn eta(&self, x: f32, y: f32, vx: f32, vy: f32, rot: f32, mask: u32, full_mask: u32) -> f32 {
         let remaining = (full_mask & !mask) as usize;
         if remaining == 0 {
             return 0.0;
         }
-        let field = &self.fields[remaining];
         let speed = (vx * vx + vy * vy).sqrt();
         let (hvx, hvy) = if speed > 1.0 { (vx, vy) } else { (0.0, -1.0) };
         let th = hvy.atan2(hvx);
         let h = ((th / (2.0 * PI / N_HEAD as f32)).round() as i32).rem_euclid(N_HEAD as i32) as usize;
-        let b = band_of(speed);
         // Posture: does the thrust vector point with or against velocity?
         let ta = rot - PI * 0.5;
         let post = if ta.cos() * hvx + ta.sin() * hvy >= 0.0 { 0 } else { 1 };
         let c0 = (((x - self.min.0) / LAT_CELL) as i64).clamp(0, self.cols as i64 - 1) as usize;
         let r0 = (((y - self.min.1) / LAT_CELL) as i64).clamp(0, self.rows as i64 - 1) as usize;
-        let mut best = field[self.node_idx(r0, c0, h, b, post)];
+        let best = self.node_value_interp(r0, c0, h, speed, post, remaining);
         if best.is_finite() {
             return best;
         }
+        // Collect finite ring candidates, cheapest first, and accept the
+        // first with clear line of sight (typically 0-2 LOS tests per
+        // dead-cell state).
+        let mut ring: Vec<(f32, i64, i64)> = Vec::new();
         for rad in 1..=2i64 {
             for dr in -rad..=rad {
                 for dc in -rad..=rad {
@@ -2247,14 +2437,19 @@ impl TimeLattice {
                     if r < 0 || c < 0 || r >= self.rows as i64 || c >= self.cols as i64 {
                         continue;
                     }
-                    let v = field[self.node_idx(r as usize, c as usize, h, b, post)];
-                    if v < best {
-                        best = v;
+                    let v = self.node_value_interp(r as usize, c as usize, h, speed, post, remaining);
+                    if v.is_finite() {
+                        ring.push((v + rad as f32 * LAT_CELL / speed.max(100.0), r, c));
                     }
                 }
             }
-            if best.is_finite() {
-                return best + rad as f32 * LAT_CELL / speed.max(100.0);
+        }
+        ring.sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        for &(v, r, c) in &ring {
+            let cx = self.min.0 + (c as f32 + 0.5) * LAT_CELL;
+            let cy = self.min.1 + (r as f32 + 0.5) * LAT_CELL;
+            if self.los_clear(x, y, cx, cy) {
+                return v;
             }
         }
         f32::INFINITY

@@ -147,7 +147,7 @@ def main() -> int:
     # Velocity-aware time lattice: available for small pickup counts. Build
     # it up front (one-time cost, shared by every solve/refine below) and
     # report its own ETA for the level as a sanity probe.
-    use_lattice = not args.no_lattice and solver.n_pickups() <= 4
+    use_lattice = not args.no_lattice and solver.n_pickups() <= 12
     if use_lattice:
         game = spaceace_rl.PyGameInstance(level, 10)
         obs = game.reset()
@@ -203,8 +203,12 @@ def main() -> int:
             print(f"  [solve] {label}: {len(best)} ticks ({len(best)/60:.3f}s)", flush=True)
         elif tape is None:
             print(f"  [solve] {label}: no completion", flush=True)
-        if best is not None and time.time() - t_start > args.budget_min * 30:
-            break  # got something and half the budget is gone: move to refinement
+        if best is not None:
+            # First completion wins the portfolio: warm-started refinement is
+            # ~10x more productive per wall-clock minute than further global
+            # solves (which are capped below the incumbent and rarely beat
+            # it), so spend the rest of the budget there.
+            break
 
     if best is None:
         print("FAILED: no completing tape found; increase --width or --budget-min")
@@ -245,8 +249,13 @@ def main() -> int:
         kind, kw = next(schedule)
         round_idx += 1
         before = len(best)
+        # Width escalation: half-width rounds are ~2x faster and keep
+        # finding gains while progress flows (warm start guarantees no
+        # regression either way); pay for full width only after a whole
+        # cycle of stages has stalled.
+        rw = args.refine_width if stale >= len(stages) else max(args.refine_width // 2, 40_000)
         if kind == "refine":
-            r = solver.refine(bytes(best), width=args.refine_width, seed=round_idx * 31,
+            r = solver.refine(bytes(best), width=rw, seed=round_idx * 31,
                               mix=1.0, proj_div=300.0, order=order, **kw)
             if r:
                 best = list(r)
@@ -268,6 +277,16 @@ def main() -> int:
         print(f"  [{kind}] round {round_idx}: {before} -> {len(best)} ticks "
               f"({len(best)/60:.3f}s, {'-'+str(gained) if gained else 'no gain'}, "
               f"{(deadline - time.time())/60:.1f}min left)", flush=True)
+        # Checkpoint every improvement: killed/interrupted runs have lost
+        # their in-memory gains twice already. Cheap (one engine replay).
+        # Ghost rows too — otherwise a stopped run leaves a banked tape
+        # with no dashboard ghost to race against.
+        if gained > 0 and not args.no_save:
+            ok_ck, ticks_ck = validate_on_engine(level, best)
+            if ok_ck and ticks_ck == len(best):
+                write_sidecar_if_best(level, "tas", best, ticks_ck)
+                save_ghost_rows(level, best, ticks_ck,
+                                [s.strip() for s in args.labels.split(",") if s.strip()])
 
     ticks = len(best)
     print(f"best: {ticks} ticks = {ticks/60:.3f}s"
