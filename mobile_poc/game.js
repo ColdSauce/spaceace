@@ -153,7 +153,7 @@ const state = {
   screen: 'menu',            // menu | playing | dead | won
   levelKey: null,
   sim: null,
-  controlMode: localStorage.getItem('sa_mode') || 'swoop',   // swoop | classic
+  controlMode: localStorage.getItem('sa_mode') || 'slide',   // slide | swoop | classic
   cam: { x: 0, y: 0, zoom: 0.5 },
   particles: [],
   ghost: null,               // best-run tape being replayed: [[x,y,rot],...]
@@ -192,7 +192,7 @@ function onTouch(e) {
   e.preventDefault();
   for (const t of e.changedTouches) {
     if (e.type === 'touchstart') {
-      touches.set(t.identifier, { x: t.clientX, y: t.clientY, zone: zoneFor(t.clientX, t.clientY) });
+      touches.set(t.identifier, { x: t.clientX, y: t.clientY, sx: t.clientX, sy: t.clientY, zone: zoneFor(t.clientX, t.clientY) });
       handleTap(t.clientX, t.clientY);
     } else if (e.type === 'touchmove') {
       const rec = touches.get(t.identifier);
@@ -209,7 +209,7 @@ for (const ev of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
 let mouseDown = false;
 canvas.addEventListener('mousedown', e => {
   mouseDown = true;
-  touches.set('m', { x: e.clientX, y: e.clientY, zone: zoneFor(e.clientX, e.clientY) });
+  touches.set('m', { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, zone: zoneFor(e.clientX, e.clientY) });
   handleTap(e.clientX, e.clientY);
 });
 canvas.addEventListener('mousemove', e => {
@@ -240,6 +240,18 @@ function currentControls() {
       if (t.zone === 'left') left = true;
       else if (t.zone === 'right') right = true;
       else if (t.zone === 'thrust') thrust = true;
+    }
+  } else if (state.controlMode === 'slide') {
+    // Slide: holding thrusts; sliding the finger up/down from where you
+    // pressed rotates (up = counterclockwise, down = clockwise) — a
+    // vertical virtual stick. Return near the press point to fly straight.
+    let t0 = null;
+    for (const t of touches.values()) { t0 = t; break; }
+    if (t0) {
+      thrust = true;
+      const dy = t0.y - t0.sy;
+      if (dy < -14) left = true;
+      else if (dy > 14) right = true;
     }
   } else {
     // Swoop: hold anywhere — ship steers toward your finger (rotation still
@@ -518,6 +530,23 @@ function drawHUD() {
   button(12, 12, 44, 44, '✕', () => { state.screen = 'menu'; }, { stroke: 'rgba(0,255,65,0.5)' });
   button(W - 56, 12, 44, 44, '↺', () => startLevel(state.levelKey), { stroke: 'rgba(0,255,65,0.5)' });
 
+  if (state.controlMode === 'slide' && state.screen === 'playing') {
+    // virtual-stick indicator: anchor at press point, dot at finger offset
+    let t0 = null;
+    for (const t of touches.values()) { t0 = t; break; }
+    if (t0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,255,255,0.35)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(t0.sx, t0.sy - 60); ctx.lineTo(t0.sx, t0.sy + 60); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,255,255,0.5)';
+      ctx.beginPath(); ctx.arc(t0.sx, t0.sy, 14, 0, 7); ctx.stroke();   // deadzone ring
+      ctx.fillStyle = 'rgba(0,255,255,0.8)';
+      const dy = Math.max(-60, Math.min(60, t0.y - t0.sy));
+      ctx.beginPath(); ctx.arc(t0.sx, t0.sy + dy, 8, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+  }
   if (state.controlMode === 'classic') {
     // control zone hints
     ctx.save();
@@ -580,9 +609,19 @@ function drawMenu() {
   }
 
   by += 8;
-  const modeLabel = state.controlMode === 'swoop' ? 'Controls: SWOOP (one thumb)' : 'Controls: CLASSIC (buttons)';
-  button(bx, by, bw, 50, modeLabel, () => {
-    state.controlMode = state.controlMode === 'swoop' ? 'classic' : 'swoop';
+  const MODES = ['slide', 'swoop', 'classic'];
+  const MODE_LABEL = {
+    slide: 'Controls: SLIDE (thrust + slide to turn)',
+    swoop: 'Controls: SWOOP (steer toward finger)',
+    classic: 'Controls: CLASSIC (buttons)',
+  };
+  const MODE_HINT = {
+    slide: 'Hold anywhere to thrust. Slide up/down from where you pressed to rotate. Release to coast.',
+    swoop: 'Hold anywhere: ship steers toward your finger and thrusts. Release to coast.',
+    classic: 'Bottom corners: rotate left / right · right side: thrust.',
+  };
+  button(bx, by, bw, 50, MODE_LABEL[state.controlMode], () => {
+    state.controlMode = MODES[(MODES.indexOf(state.controlMode) + 1) % MODES.length];
     localStorage.setItem('sa_mode', state.controlMode);
   }, { stroke: 'rgba(0,255,255,0.7)', color: '#00ffff' });
 
@@ -590,9 +629,7 @@ function drawMenu() {
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
   ctx.font = '400 12px -apple-system, system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(state.controlMode === 'swoop'
-    ? 'Hold anywhere: ship steers toward your finger and thrusts. Release to coast.'
-    : 'Bottom corners: rotate left / right · right side: thrust.', W / 2, by + 74);
+  ctx.fillText(MODE_HINT[state.controlMode], W / 2, by + 74);
   ctx.fillText('Collect every ◈ without touching a wall. Gravity is real. Momentum is king.', W / 2, by + 92);
   ctx.restore();
 }

@@ -23,12 +23,15 @@ can't be about frame-perfect inputs — it has to be about **flow**: the
 swooping, gravity-surfing feel that makes optimal SpaceAce lines beautiful.
 The POC bets on three things:
 
-1. **One-thumb "Swoop" controls** (default). Hold anywhere: the ship
-   steers toward your finger and thrusts; release to coast. Crucially the
-   rotation is still rate-limited by the engine's real 4.363 rad/s, so
-   physics honesty is preserved — the assist changes *how you express*
-   inputs, not what the ship can do. A "Classic" mode (rotate/rotate/thrust
-   buttons) is one tap away for purists.
+1. **One-thumb "Slide" controls** (default). Hold anywhere to thrust;
+   slide your finger up/down from where you pressed to rotate
+   (up = counterclockwise, down = clockwise, small deadzone in between);
+   release to coast. A faint virtual-stick indicator shows the anchor and
+   your offset. Rotation is still rate-limited by the engine's real
+   4.363 rad/s, so physics honesty is preserved — the control scheme
+   changes *how you express* inputs, not what the ship can do. Two more
+   modes are one tap away: "Swoop" (ship steers toward your finger while
+   thrusting) and "Classic" (rotate/rotate/thrust buttons).
 2. **Race your ghost.** Every personal best is recorded and replayed as a
    translucent magenta ship on your next attempt — the core loop of this
    whole project (human vs. Ace ghosts) is *natively* a mobile hook.
