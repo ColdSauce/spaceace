@@ -223,11 +223,14 @@ def main() -> int:
     if args.deep:
         stages = [
             ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3, lattice=lat)),
+            ("window", dict(span=210, quant_pos=1.5, quant_vel=3.0, rot_bins=128)),
             ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1, lattice=lat)),
+            ("window", dict(span=300, quant_pos=1.0, quant_vel=2.0, rot_bins=192)),
             ("polish", {}),
             ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
             ("refine", dict(radius=150.0, quant_pos=1.5, quant_vel=3.0, rot_bins=128, doom_scale=0.1, lattice=lat)),
             ("suffix", dict(lattice=lat)),
+            ("window", dict(span=400, quant_pos=0.8, quant_vel=1.6, rot_bins=256)),
             ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
             ("polish", {}),
         ]
@@ -235,9 +238,11 @@ def main() -> int:
     else:
         stages = [
             ("refine", dict(radius=1e9, quant_pos=3.0, quant_vel=6.0, doom_scale=0.3, lattice=lat)),
+            ("window", dict(span=210, quant_pos=1.5, quant_vel=3.0, rot_bins=128)),
             ("refine", dict(radius=200.0, quant_pos=2.5, quant_vel=5.0, doom_scale=0.1, lattice=lat)),
             ("polish", {}),
             ("refine", dict(radius=1e9, quant_pos=4.0, quant_vel=8.0, doom_scale=1.0)),
+            ("window", dict(span=300, quant_pos=1.0, quant_vel=2.0, rot_bins=192)),
             ("refine", dict(radius=250.0, quant_pos=2.0, quant_vel=4.0, doom_scale=0.1)),
             ("suffix", dict(lattice=lat)),
         ]
@@ -259,6 +264,22 @@ def main() -> int:
                               mix=1.0, proj_div=300.0, order=order, **kw)
             if r:
                 best = list(r)
+        elif kind == "window":
+            # Coordinated local re-plan followed by an exact rollout of the
+            # untouched final 64 ticks from every terminal beam state. This
+            # attacks late-route plateaus without approximate state splicing.
+            params = dict(kw)
+            span = int(params.pop("span"))
+            resume_tick = len(best) - 64
+            start_tick = max(0, resume_tick - span)
+            if start_tick + 2 < resume_tick:
+                r = solver.resolve_window_exact(
+                    bytes(best), start_tick, resume_tick, save_ticks=1,
+                    width=rw, seed=round_idx * 43, jitter=5.0,
+                    order=order, **params,
+                )
+                if r:
+                    best = list(r)
         elif kind == "polish":
             budget_steps = 2_000_000_000 if args.deep else 500_000_000
             iters = max(60_000, min(2_000_000, budget_steps // max(len(best), 1)))
@@ -275,12 +296,14 @@ def main() -> int:
                 from audit_tape import audit as _audit
                 rep = _audit(level, best, probe_orders=0, quiet=True)
                 ranked = sorted(rep["legs"], key=lambda l: -(l["actual_s"] - l["floor_s"]))
-                targets = [l["start_tick"] for l in ranked[:2] if 0 < l["start_tick"] < len(best) - 60]
+                eligible = [l for l in ranked if 0 < l["start_tick"] < len(best) - 60]
+                targets = [l["start_tick"] for l in eligible[:2]]
             except Exception as e:
                 print(f"  [audit] unavailable ({e}); using fixed fractions", flush=True)
             if not targets:
                 targets = [int(len(best) * f) for f in (0.75, 0.5)]
             targets.append(int(len(best) * 0.25))
+            targets = list(dict.fromkeys(targets))
             for ti, from_tick in enumerate(targets):
                 r = solver.resolve_suffix(bytes(best), from_tick,
                                           width=args.width, seed=round_idx * 13 + ti,

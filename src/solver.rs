@@ -1614,15 +1614,264 @@ impl AceSolver {
         }
         let prefix = &tape[..from_tick];
         let start = self.state_after(prefix)?;
-        let budget = (total as usize - from_tick).saturating_sub(1);
+        let reference = &tape[from_tick..total as usize];
+        let budget = reference.len().saturating_sub(1);
         if budget == 0 {
             return None;
         }
+
+        // Preserve the known-valid suffix at every layer, just as refine
+        // preserves the whole incumbent. The previous blind suffix search
+        // could prune the reference immediately and report no result despite
+        // starting from a state with a proven completion inside the horizon.
+        let mut ref_states = Vec::with_capacity(reference.len());
+        let mut state = start;
+        ref_states.push(state);
+        for &action in reference {
+            if self.step(&mut state, action) != StepOutcome::Alive {
+                break;
+            }
+            ref_states.push(state);
+        }
         let params = BeamParams { max_ticks: budget as u32, ..p.clone() };
-        let suffix = self.beam_from(start, &params)?;
+        let suffix = self.beam_impl(
+            start,
+            &params,
+            None,
+            Some((&ref_states, reference)),
+        )?;
         let mut out = prefix.to_vec();
         out.extend_from_slice(&suffix);
-        Some(out)
+        if out.len() < total as usize {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
+    /// Replace [start_tick, resume_tick) with `save_ticks` fewer actions, then
+    /// execute the untouched incumbent suffix from every terminal beam state.
+    /// Acceptance is exact: no state tolerance or approximate splice is used.
+    pub fn resolve_window_exact(
+        &self,
+        tape: &[u8],
+        start_tick: usize,
+        resume_tick: usize,
+        save_ticks: usize,
+        p: &BeamParams,
+    ) -> Option<Vec<u8>> {
+        let (completed, _, total) = self.replay(tape);
+        let total = total as usize;
+        if !completed
+            || save_ticks == 0
+            || start_tick >= resume_tick
+            || resume_tick >= total
+            || resume_tick - start_tick <= save_ticks
+        {
+            return None;
+        }
+        let start = self.state_after(&tape[..start_tick])?;
+        let window = &tape[start_tick..resume_tick];
+        let horizon = window.len() - save_ticks;
+        // Bound the public API's exhaustive terminal oracle. Driver windows
+        // keep a 64-tick suffix; callers with both huge width and suffix must
+        // move resume_tick later or reduce width.
+        let rollout_work = (total - resume_tick) as u128 * (p.width as u128 + 1) * 6;
+        if rollout_work > 1_000_000_000 {
+            return None;
+        }
+
+        // Exact incumbent states provide a moving, phase-advanced rank target.
+        // They guide pruning only; the final suffix rollout is authoritative.
+        let mut ref_states = Vec::with_capacity(window.len() + 1);
+        let mut state = start;
+        ref_states.push(state);
+        for &action in window {
+            if self.step(&mut state, action) != StepOutcome::Alive {
+                return None;
+            }
+            ref_states.push(state);
+        }
+
+        let mut cur = vec![start];
+        let mut links: Vec<(Vec<u32>, Vec<u8>)> = Vec::with_capacity(horizon.saturating_sub(1));
+        let mut incumbent_idx: Option<u32> = Some(0);
+
+        for tick in 0..horizon {
+            let target = ref_states[tick + 1 + save_ticks];
+            let chunk = (cur.len() / (rayon::current_num_threads() * 4)).max(64);
+            let cands: Vec<Cand> = cur
+                .par_chunks(chunk)
+                .enumerate()
+                .flat_map_iter(|(ci, states)| {
+                    let base = ci * chunk;
+                    let mut out = Vec::with_capacity(states.len() * 6);
+                    for (si, s0) in states.iter().enumerate() {
+                        for action in 0..6u8 {
+                            let mut s = *s0;
+                            if self.step(&mut s, action) == StepOutcome::Crashed {
+                                continue;
+                            }
+                            if let Some(order) = &p.order {
+                                if s.mask != self.full_mask && !order_ok(s.mask, order) {
+                                    continue;
+                                }
+                            }
+                            let key = self.quant_key(&s, p);
+                            let rank = self.rank_to_phase(&s, &target, p, key);
+                            out.push(Cand {
+                                key,
+                                rank,
+                                h: 0.0,
+                                state: s,
+                                parent: (base + si) as u32,
+                                action,
+                            });
+                        }
+                    }
+                    out
+                })
+                .collect();
+
+            if cands.is_empty() {
+                return None;
+            }
+
+            let reconstruct = |win: &Cand| {
+                let mut actions = vec![win.action];
+                let mut parent = win.parent;
+                for (parents, layer_actions) in links.iter().rev() {
+                    actions.push(layer_actions[parent as usize]);
+                    parent = parents[parent as usize];
+                }
+                actions.reverse();
+                actions
+            };
+
+            // A window can discover a radically faster completion before its
+            // planned resume layer. Do not carry that terminal state forward;
+            // accept it at the exact tick on which collection completed.
+            if let Some(win) = cands.iter().find(|cand| cand.state.mask == self.full_mask) {
+                let replacement = reconstruct(win);
+                let mut out = Vec::with_capacity(start_tick + replacement.len());
+                out.extend_from_slice(&tape[..start_tick]);
+                out.extend_from_slice(&replacement);
+                let (ok, _, ticks) = self.replay(&out);
+                if ok && ticks as usize == out.len() && out.len() < total {
+                    return Some(out);
+                }
+            }
+
+            // On the final layer, skip approximate selection entirely. Roll
+            // the proven suffix from every expanded state and keep only exact
+            // completions that beat the incumbent.
+            if tick + 1 == horizon {
+                let suffix = &tape[resume_tick..total];
+                let wins: Vec<(usize, usize)> = cands
+                    .par_iter()
+                    .enumerate()
+                    .filter_map(|(i, cand)| {
+                        if cand.state.mask == self.full_mask {
+                            return Some((i, 0));
+                        }
+                        let mut s = cand.state;
+                        for (used, &action) in suffix.iter().enumerate() {
+                            match self.step(&mut s, action) {
+                                StepOutcome::Completed => return Some((i, used + 1)),
+                                StepOutcome::Crashed => return None,
+                                StepOutcome::Alive => {}
+                            }
+                        }
+                        None
+                    })
+                    .filter(|&(_, used)| start_tick + horizon + used < total)
+                    .collect();
+                let (win_idx, suffix_used) = wins
+                    .into_iter()
+                    .min_by_key(|&(i, used)| (start_tick + horizon + used, i))?;
+
+                let win = &cands[win_idx];
+                let replacement = reconstruct(win);
+
+                let mut out = Vec::with_capacity(start_tick + replacement.len() + suffix_used);
+                out.extend_from_slice(&tape[..start_tick]);
+                out.extend_from_slice(&replacement);
+                out.extend_from_slice(&suffix[..suffix_used]);
+                let (ok, _, ticks) = self.replay(&out);
+                if ok && ticks as usize == out.len() && out.len() < total {
+                    return Some(out);
+                }
+                return None;
+            }
+
+            // Quantized dedup followed by phase-target top-k. The exact suffix
+            // oracle on the final layer prevents terminal rank from deciding
+            // which nearby state is actually spliceable.
+            let mut seen: HashMap<u64, usize> = HashMap::with_capacity(cands.len());
+            let mut keep: Vec<usize> = Vec::with_capacity(cands.len());
+            for (i, cand) in cands.iter().enumerate() {
+                match seen.entry(cand.key) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(keep.len());
+                        keep.push(i);
+                    }
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        let slot = *entry.get();
+                        if cand.rank < cands[keep[slot]].rank {
+                            keep[slot] = i;
+                        }
+                    }
+                }
+            }
+            if keep.len() > p.width {
+                keep.select_nth_unstable_by(p.width, |&a, &b| {
+                    cands[a].rank.partial_cmp(&cands[b].rank).unwrap()
+                });
+                keep.truncate(p.width);
+            }
+
+            let mut parents = Vec::with_capacity(keep.len() + 1);
+            let mut actions = Vec::with_capacity(keep.len() + 1);
+            let mut next = Vec::with_capacity(keep.len() + 1);
+            for i in keep {
+                parents.push(cands[i].parent);
+                actions.push(cands[i].action);
+                next.push(cands[i].state);
+            }
+            if let Some(parent) = incumbent_idx {
+                let ref_tick = tick + 1;
+                if ref_tick < ref_states.len() {
+                    parents.push(parent);
+                    actions.push(window[tick]);
+                    next.push(ref_states[ref_tick]);
+                    incumbent_idx = Some(next.len() as u32 - 1);
+                } else {
+                    incumbent_idx = None;
+                }
+            }
+            links.push((parents, actions));
+            cur = next;
+        }
+        None
+    }
+
+    #[inline]
+    fn rank_to_phase(&self, s: &SimState, target: &SimState, p: &BeamParams, key: u64) -> f32 {
+        let dx = s.x - target.x;
+        let dy = s.y - target.y;
+        let dvx = s.vx - target.vx;
+        let dvy = s.vy - target.vy;
+        let mut dr = (s.rot - target.rot).rem_euclid(2.0 * PI);
+        if dr > PI {
+            dr = 2.0 * PI - dr;
+        }
+        let mask_penalty = if s.mask == target.mask { 0.0 } else { 5000.0 };
+        let jitter = (mix64(key ^ p.seed) & 0xFFFF) as f32 / 65535.0 * p.jitter;
+        (dx * dx + dy * dy).sqrt()
+            + 0.35 * (dvx * dvx + dvy * dvy).sqrt()
+            + 120.0 * dr
+            + mask_penalty
+            + jitter
     }
 
     // --- polish ----------------------------------------------------------------

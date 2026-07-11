@@ -57,8 +57,9 @@ Always use `uv sync --reinstall-package spaceace-rl` to rebuild.
 - `solver.rs` — the entire AI in one file. Exact stepper, parallel beam
   search (route-DP heuristic, momentum-aware rank with fly-through credit
   and turnaround penalty, braking-feasibility doom model, mask-stratified
-  selection), warm-started global/corridor refinement, suffix/prefix
-  re-solves, local-search polish. Design details: `docs/SOLVER.md`.
+  selection), warm-started global/corridor and suffix refinement,
+  exact-continuation window re-solves, local-search polish. Design details:
+  `docs/SOLVER.md`.
 
 ### Python (`spaceace/`)
 - `core/env.py` — `SpaceAceDirectEnv` wrapping `PyGameInstance`
@@ -68,8 +69,8 @@ Always use `uv sync --reinstall-package spaceace-rl` to rebuild.
 - `ghost_actions.py` — sidecar I/O (`ghost_actions/L{level}_tas.json`,
   ticks at 60/s, action indices 0-5)
 - `scripts/solve.py` — the whole AI workflow in one command: portfolio
-  solve → refine/polish/suffix loop → validate on the real engine → save
-  sidecar + dashboard ghosts
+  solve → refine/exact-window/polish/suffix loop → validate on the real
+  engine → save sidecar + dashboard ghosts
 
 ### Ghosts
 - `dashboard/spaceace_dashboard.db` `ghost_replays`: best time per

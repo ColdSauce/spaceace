@@ -65,8 +65,8 @@ action tape offline; the `ace` agent replays it.
    (253·misalign + 0.875·waste).
 5. **Time lattice** (`TimeLattice`, `lattice=true` — the 2026-07 upgrade
    that broke the 21s plateau): a velocity-aware time-to-go value
-   function V_S(20px cell, 16 velocity headings, 11 speed bands,
-   pro/retro posture) per remaining-pickup subset (n ≤ 4), built in ~1s
+   function V_S(20px cell, 32 velocity headings, 11 speed bands,
+   pro/retro posture) per remaining-pickup subset, built in ~1-3s
    by backward Dijkstra over motion-primitive edges (cruise / gravity-
    adjusted accel & brake / constant-speed turn arcs with swept
    clearance / 0.72s posture flips that drift v·0.72s). Touching a
@@ -87,14 +87,15 @@ action tape offline; the `ace` agent replays it.
 7. **Anytime refinement** — `refine` (corridor + warm start), `polish`
    (exact local search on the tape; move set includes net-rotation-
    preserving pair deletes, pair strips, near transpositions and thrust
-   retiming), `resolve_suffix` (re-plan tails), `resolve_prefix`
-   (rendezvous splicing; see Lessons for why it mostly fails).
+   retiming), warm `resolve_suffix` (re-plan tails), `resolve_window_exact`
+   (phase-advanced window beam plus exhaustive exact suffix rollout), and
+   `resolve_prefix` (approximate rendezvous diagnostics).
 8. **Driver** (`scripts/solve.py`) — portfolio of global solves (lattice
    first, then px, then px-safe doom_scale=2.0) → improvement loop
-   cycling lattice/px global and tube refines, polish, suffix re-solves →
-   validate on the engine → save sidecar + dashboard ghosts (only when
-   strictly faster). `--order 2,1,0` forces a pickup order (diagnostics);
-   `--no-lattice` disables the lattice rank.
+   cycling lattice/px global and tube refines, exact-continuation windows,
+   polish, and warm suffix re-solves → validate on the engine → save sidecar
+   + dashboard ghosts (only when strictly faster). `--order 2,1,0` forces a
+   pickup order (diagnostics); `--no-lattice` disables the lattice rank.
 
 ## Lessons learned (chronological — each cost real debugging time)
 
@@ -201,6 +202,16 @@ action tape offline; the `ace` agent replays it.
     sidecars). Clamped now (whole-map dilation = grid diameter). The
     first actually-executed warm global lattice refine took L7
     26.58s → 20.03s in ONE round.
+17. **Exact continuation beats approximate splicing.** A shortened local
+    trajectory usually cannot match an incumbent state closely enough for a
+    long chaotic suffix; tolerance-based rendezvous candidates diverge. In
+    `resolve_window_exact`, the beam instead tracks the incumbent one tick
+    ahead across a bounded window, then skips terminal rank/dedup and executes
+    the untouched suffix from every final expanded state. Only a full strict
+    completion is accepted. Repeated 30k-250k windows reduced L7 from 19.583s
+    to 19.217s, including gains in the opening, pendulum, and final slalom.
+    Warm suffix re-solves likewise inject their known-valid reference at every
+    layer; the former blind suffix beam could prune its only proven route.
 
 ## The diagnostic loop (how to keep improving)
 
@@ -219,20 +230,21 @@ action tape offline; the `ace` agent replays it.
 
 ## Known open problems
 
-- **The last ~0.6s to the strict floor.** With the time lattice the
-  toolset converges at ~19.6s on L7 (validated; vs 21.05s before).
-  Corner-model kinematics put the strict no-clip floor at ~19.0-19.8s;
-  the ~18s human WR almost certainly leans on the >316px/s
-  alternate-tick collision quirk (banned for ghosts — at 18s pace the
-  ship is above the threshold ~90% of the run). Remaining fat vs
-  physics targets: P1→P2 under-spike pendulum (~0.9s: carries ~270px/s
-  where ~350-400 fits the 194px gates) and the descent slalom (~0.7s).
-- Beams ossify from the front (lesson 10) — a principled prefix improver
-  is an open algorithmic problem.
-- Lattice fidelity: 20px cells / 22.5° headings / band quantization make
-  V pessimistic in tight slaloms (no thrust-during-rotation, whole-arc
-  clearance). Finer bands near the pinch speeds or compound-arc
-  templates could price the last few hundred px/s of cornering.
+- **The remaining 1.217s to the reported 18s record.** The current saved L7
+  tape is 1153 ticks / 19.217s, strict and validated on `PyGameInstance`.
+  No 18s action tape is available locally, so its collision behavior and the
+  true strict floor are not established; do not turn the engine's >316px/s
+  alternate-tick collision quirk into search guidance or a saved ghost.
+  Measured remaining slack includes the 292-tick P1→P2 pendulum (267px/s
+  mean, 337px/s max) and a 0.75s sub-150px/s section in the final slalom.
+- Exact-continuation windows mitigate front ossification but still need a
+  viable suffix basin. Long early windows remain expensive and can stall; a
+  more principled global prefix improver is still open.
+- Lattice fidelity: 20px cells / 11.25° headings / band quantization make V
+  pessimistic in tight slaloms. Speed changes and turns remain separate
+  primitives, while whole-arc clearance can reject feasible compound flight.
+  Any compound primitive must sample and price its snapped endpoint; an
+  unchecked rounded endpoint can poison every upstream value.
 
 ## Practical notes
 

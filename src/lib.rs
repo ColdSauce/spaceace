@@ -465,6 +465,29 @@ impl PySolver {
         let p = BeamParams { width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, lookahead, mix, proj_div, doom_scale, turn_w, jitter, order, cell_strat_m, lattice };
         py.allow_threads(|| self.inner.resolve_suffix(&tape, from_tick, &p))
     }
+
+    /// Search a shorter replacement for one tape window, then accept only
+    /// terminal states whose untouched suffix completes exactly.
+    #[pyo3(signature = (tape, start_tick, resume_tick, save_ticks=1, width=50_000, seed=0, quant_pos=3.0, quant_vel=6.0, rot_bins=96, jitter=3.0, order=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_window_exact(&self, py: Python<'_>, tape: Vec<u8>, start_tick: usize,
+                            resume_tick: usize, save_ticks: usize, width: usize,
+                            seed: u64, quant_pos: f32, quant_vel: f32, rot_bins: u32,
+                            jitter: f32, order: Option<Vec<u8>>) -> Option<Vec<u8>> {
+        let p = BeamParams {
+            width, max_ticks: 0, seed, quant_pos, quant_vel, rot_bins, jitter, order,
+            ..BeamParams::default()
+        };
+        py.allow_threads(|| {
+            self.inner.resolve_window_exact(
+                &tape,
+                start_tick,
+                resume_tick,
+                save_ticks,
+                &p,
+            )
+        })
+    }
 }
 
 #[pymodule]

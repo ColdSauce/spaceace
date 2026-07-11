@@ -23,7 +23,7 @@ RE_HEADER = re.compile(r"^L(\d+): (\d+) pickups; human ghost: ([\d.]+|None)s?")
 RE_ETA = re.compile(r"spawn ETA ([\d.]+)s")
 RE_SOLVE = re.compile(r"\[solve\] (.+?): (?:(\d+) ticks \(([\d.]+)s\)|no completion)")
 RE_ROUND = re.compile(
-    r"\[(refine|polish|suffix)\] round (\d+): (\d+) -> (\d+) ticks "
+    r"\[(refine|window|polish|suffix)\] round (\d+): (\d+) -> (\d+) ticks "
     r"\(([\d.]+)s, (?:-(\d+)|no gain), (-?[\d.]+)min left\)")
 RE_BEST = re.compile(r"^best: (\d+) ticks = ([\d.]+)s")
 RE_INCUMBENT = re.compile(r"incumbent sidecar: (\d+) ticks")
